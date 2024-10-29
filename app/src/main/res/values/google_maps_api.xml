@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-        <string name="google_maps_key" translatable="false">AIzaSyCTU7dil3cxd9m8t1EKLOdX9FkY7zjQKXY</string>
+        <string name="google_maps_key" translatable="false">API_KEY</string>
 
 </resources>
