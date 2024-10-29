@@ -15,6 +15,7 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.model.PointOfInterest;
 import com.google.android.gms.tasks.OnSuccessListener;
 import android.location.Location;
 import android.Manifest;
@@ -22,12 +23,20 @@ import android.content.pm.PackageManager;
 import androidx.core.app.ActivityCompat;
 import android.location.Location;
 
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
 
     private GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
+    //List<LatLng> campusLocations = new ArrayList<>();
+    Map<String, LatLng> poiMap = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,16 +91,22 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         mMap.addMarker(new MarkerOptions().position(campusLocation).title("ITESO")); // New Marker (Campus)
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(campusLocation, 15)); // Zoom level
 
-        // Setting POI (Points of Interest) with LatLng objects, to set coordinates
+        // Setting POIs (Points of Interest) with LatLng objects, to set coordinates
+        poiMap.put("Library", new LatLng(20.605873, -103.415513));
+        poiMap.put("El Hueco", new LatLng(20.6049088, -103.4153376));
         LatLng library = new LatLng(20.605873, -103.415513);
-        LatLng elHueco = new LatLng(29.6049088, -103.4153376);
 
         // Adding markers of POIs to the map
         mMap.addMarker(new MarkerOptions().
-                position(library).title("Library"));
+                position(poiMap.get("Library")).title("Library"));
+
         //.icon(BitmapDescriptorFactory.fromResource(R.drawable.library_marker)));
         mMap.addMarker(new MarkerOptions().
-                position(elHueco).title("El Hueco"));
+                position(poiMap.get("El Hueco")).title("El Hueco"));
+
+        // Saving POIs on List
+        //campusLocations.add(library);
+        //campusLocations.add(elHueco);
     }
 
     @Override
@@ -117,4 +132,50 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
+    public double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+        double R = 6371; // Radius of Earth in kilometers
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    public List<POI> findNearestPOIs(double userLat, double userLng, int k) {
+        // Map to hold distances and corresponding POIs
+        List<POI> pois = new ArrayList<>(poiMap.size());
+
+        // Populate the list with POIs from map
+        for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
+            pois.add(new POI(entry.getKey(), entry.getValue()));
+        }
+
+        // Sort POIs based on distance from user location
+        pois.sort(Comparator.comparingDouble(poi -> calculateDistance(userLat, userLng, poi.location.latitude, poi.location.longitude)));
+
+        // Prepare the result list with the nearest K POIs
+        List<POI> nearestPOIs = new ArrayList<>();
+        for (int i = 0; i < Math.min(k, pois.size()); i++) {
+            nearestPOIs.add(pois.get(i)); // Add the nearest POIs to the result
+        }
+
+        return nearestPOIs; // Return the list of nearest POIs
+    }
+
+    // Helper class to store POI and its distance
+    public class POI {
+        String name;
+        LatLng location;
+
+        public POI(String name, LatLng location) {
+            this.name = name;
+            this.location = location;
+        }
+    }
+
+
+
 }
+
