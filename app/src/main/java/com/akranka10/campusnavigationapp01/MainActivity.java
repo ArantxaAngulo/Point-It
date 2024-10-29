@@ -2,6 +2,7 @@ package com.akranka10.campusnavigationapp01;
 
 import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -83,6 +84,22 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     // Convert location to LatLng and move the camera
                     LatLng userLocation = new LatLng(location.getLatitude(), location.getLongitude());
                     mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15));
+
+                    // Retrieve the nearest POIs (let's say we want the 5 nearest)
+                    List<POI> nearestPOIs = findNearestPOIs(userLocation.latitude, userLocation.longitude, 5);
+
+                    // Create a string array for the names of the nearest POIs
+                    String[] poiNames = new String[nearestPOIs.size()];
+                    for (int i = 0; i < nearestPOIs.size(); i++) {
+                        poiNames[i] = nearestPOIs.get(i).name; // Get the names of POIs
+                    }
+
+                    // Create and display an AlertDialog with the list of POIs
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("Nearest POIs")
+                            .setItems(poiNames, null)
+                            .setPositiveButton("OK", null)
+                            .show();
                 }
             }
         });
@@ -97,16 +114,11 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         LatLng library = new LatLng(20.605873, -103.415513);
 
         // Adding markers of POIs to the map
-        mMap.addMarker(new MarkerOptions().
-                position(poiMap.get("Library")).title("Library"));
-
+        for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
+            mMap.addMarker(new MarkerOptions().position(entry.getValue()).title(entry.getKey()));
+        }
         //.icon(BitmapDescriptorFactory.fromResource(R.drawable.library_marker)));
-        mMap.addMarker(new MarkerOptions().
-                position(poiMap.get("El Hueco")).title("El Hueco"));
 
-        // Saving POIs on List
-        //campusLocations.add(library);
-        //campusLocations.add(elHueco);
     }
 
     @Override
