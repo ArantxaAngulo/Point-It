@@ -1,5 +1,6 @@
 package com.akranka10.campusnavigationapp01;
 
+import android.graphics.Bitmap;
 import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AlertDialog;
@@ -12,6 +13,7 @@ import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.location.FusedLocationProviderClient;
@@ -30,7 +32,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
+import java.util.stream.Collectors;
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
 
@@ -85,8 +87,33 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     LatLng userLocation = new LatLng(location.getLatitude(), location.getLongitude());
                     mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15));
 
-                    // Retrieve the nearest POIs (let's say we want the 5 nearest)
+                    //POIs
+                    // Setting POIs (Points of Interest) with LatLng objects, to set coordinates
+                        //poiMap.put("Library", new LatLng(20.605873, -103.415513));
+                    poiMap.put("El Hueco", new LatLng(20.6049088, -103.4153376));
+                    poiMap.put("Tacos El Ojitos", new LatLng(20.6083417, -103.4326965));
+                    poiMap.put("Charlie Boy Burgers & Shakes", new LatLng(20.628596, -103.409205));
+                    poiMap.put("Hamburguesas Beto's", new LatLng(20.641518, -103.420175));
+                    poiMap.put("Mile Pizzas a la Lena", new LatLng(20.641990,-103.401016));
+                    poiMap.put("Casa Macaria Cruz del Sur", new LatLng(20.642652, -103.387851));
+                    poiMap.put("Pizzas D'TERE", new LatLng(20.650405, -103.432099));
+                    poiMap.put("Asador Santa Anita", new LatLng(20.560811, -103.448668));
+
+                    // Adding markers of POIs to the map
+                    for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
+                        mMap.addMarker(new MarkerOptions()
+                                .icon(BitmapDescriptorFactory.fromResource(R.drawable.dot_icon))
+                                .position(entry.getValue())
+                                .title(entry.getKey()));
+                    }
+
+                    // Retrieve the nearest 5 POIs
                     List<POI> nearestPOIs = findNearestPOIs(userLocation.latitude, userLocation.longitude, 5);
+
+                    // Add markers for each of the nearest POIs
+                    for (POI poi : nearestPOIs) {
+                        mMap.addMarker(new MarkerOptions().position(poi.location).title(poi.name));
+                    }
 
                     // Create a string array for the names of the nearest POIs
                     String[] poiNames = new String[nearestPOIs.size()];
@@ -103,22 +130,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 }
             }
         });
-
-        LatLng campusLocation = new LatLng(20.60833, -103.41695); // Move the camera to a specific location (Campus coordinates)
-        mMap.addMarker(new MarkerOptions().position(campusLocation).title("ITESO")); // New Marker (Campus)
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(campusLocation, 15)); // Zoom level
-
-        // Setting POIs (Points of Interest) with LatLng objects, to set coordinates
-        poiMap.put("Library", new LatLng(20.605873, -103.415513));
-        poiMap.put("El Hueco", new LatLng(20.6049088, -103.4153376));
-        LatLng library = new LatLng(20.605873, -103.415513);
-
-        // Adding markers of POIs to the map
-        for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
-            mMap.addMarker(new MarkerOptions().position(entry.getValue()).title(entry.getKey()));
-        }
-        //.icon(BitmapDescriptorFactory.fromResource(R.drawable.library_marker)));
-
     }
 
     @Override
@@ -158,22 +169,23 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     public List<POI> findNearestPOIs(double userLat, double userLng, int k) {
         // Map to hold distances and corresponding POIs
         List<POI> pois = new ArrayList<>(poiMap.size());
+        // Define a maximum distance (in kilometers)
+        double maxDistanceKm = 5.0;
 
         // Populate the list with POIs from map
         for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
-            pois.add(new POI(entry.getKey(), entry.getValue()));
+            double distance = calculateDistance(userLat, userLng, entry.getValue().latitude, entry.getValue().longitude);
+
+            // Check if the POI is within the maximum distance
+            if (distance <= maxDistanceKm) {
+                pois.add(new POI(entry.getKey(), entry.getValue())); // Add the POI to the list
+            }
         }
 
         // Sort POIs based on distance from user location
         pois.sort(Comparator.comparingDouble(poi -> calculateDistance(userLat, userLng, poi.location.latitude, poi.location.longitude)));
 
-        // Prepare the result list with the nearest K POIs
-        List<POI> nearestPOIs = new ArrayList<>();
-        for (int i = 0; i < Math.min(k, pois.size()); i++) {
-            nearestPOIs.add(pois.get(i)); // Add the nearest POIs to the result
-        }
-
-        return nearestPOIs; // Return the list of nearest POIs
+        return pois; // Return the list of nearest POIs
     }
 
     // Helper class to store POI and its distance
