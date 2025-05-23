@@ -1,11 +1,14 @@
 package com.akranka10.campusnavigationapp01;
 
-import android.graphics.Bitmap;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
+import androidx.core.view.GravityCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.annotation.NonNull;
@@ -15,90 +18,199 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.model.PointOfInterest;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.libraries.places.api.Places;
-import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest;
-import com.google.android.libraries.places.api.net.FindCurrentPlaceResponse;
+import com.google.android.libraries.places.api.model.CircularBounds;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.View;
+import android.widget.AutoCompleteTextView;
+import android.widget.ListView;
+import android.os.Handler;
+import android.os.Looper;
 import com.google.android.libraries.places.api.net.PlacesClient;
-//import com.google.android.libraries.places.api.net.NearbySearchRequest;
 import android.location.Location;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import androidx.core.app.ActivityCompat;
-import com.google.android.gms.maps.model.LatLng;
-import android.location.Location;
-import androidx.appcompat.app.AlertDialog;
-import com.google.android.gms.maps.CameraUpdateFactory;
-import com.google.android.gms.maps.model.LatLng;
-import android.location.Location;
+import androidx.drawerlayout.widget.DrawerLayout;
+import com.google.android.libraries.places.api.model.Place;
+import com.google.android.libraries.places.api.net.FetchPlaceRequest;
+import com.google.android.libraries.places.api.net.SearchByTextRequest;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import android.util.Log;
 import android.widget.Button;
-
-import java.util.AbstractMap;
+import android.widget.Toast;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
+import java.util.UUID;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Arrays;
-import java.util.stream.Collectors;
 
-/*
-- Classes ✔️
-- Objects ✔️
-- Constructors ✔️
-- this keyword ✔️
-- access modifiers ✔️
-- getters and setters ️✔️
-- multiple levels of inheritance ✔️
-- collections framework ✔️
-- lambda ✔️
-- stream ✔️
-- enum types ❓
-- interfaces ✔️
+/**
+ * Main activity for the Points of Interest (POI) application.
+ * This class handles map initialization, location services, and POI discovery.
+ *
+ * The application allows users to:
+ * - View their current location on a Google Map
+ *  - Add custom POIs by clicking on the map or by address
+ * - Find nearest Points of Interest within a 5 km radius
+ * - Explore different types of POIs (Restaurants, Historical Sites, Parks)
+ *
+ * @author [Arantxa]
+ * @version v0.3.2
+ * @since [11/29/2024]
  */
 
 // "MAIN" CLASS
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
+    // Global variables
+    private POILocalStorage localStorage;
+    private List<POI> allPOIs = new ArrayList<>(); // Saves POI objects
+    private Map<String, Marker> poiMarkers = new HashMap<>(); //manages and relates POIs to markers
+
+    private boolean isAddingPOI = false; //flag
+    private Button addPOIButton;
+
+    private Button addPOIByAddressButton;
+    private PlacesClient placesClient;
+    private boolean isAddingByAddress = false;
+
+    private boolean isDeleteMode = false; //flag
+    private Button deletePOIButton;
 
     private GoogleMap mMap; // New Object GoogleMap
     private FusedLocationProviderClient fusedLocationClient; // Object FusedLocationProviderClient
     Map<String, LatLng> poiMap = new HashMap<>(); // HashMap named poiMap that relates PLACENAME String to COORDINATES LatLng // LatLng Datatype provided by google
     private LatLng userLocation; // Coordinates to store user location
 
+    /**
+     * Initializes the activity, sets up the user interface, and configures map and location services.
+     *
+     * This method:
+     * - Sets the content view
+     * - Initializes buttons
+     * - Initializes the Google Map with its dependencies
+     *
+     * @param savedInstanceState Bundle containing the activity's previously saved state
+     */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
-        // Initialize the button
+        // Initialize local storage
+        localStorage = new POILocalStorage(this);
+
+        // Initialize Places API
+        if (!Places.isInitialized()) {
+            Places.initialize(getApplicationContext(), getString(R.string.google_maps_key));
+        }
+        placesClient = Places.createClient(this);
+
+        // Initialize the drawer layout and FAB
+        DrawerLayout drawerLayout = findViewById(R.id.drawer_layout);
+        FloatingActionButton fab = findViewById(R.id.fab_add_poi);
+        fab.setOnClickListener(view -> {
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START);
+            } else {
+                drawerLayout.openDrawer(GravityCompat.START);
+            }
+        });
+
+        // Initialize the "Add POI by Address" button
+        addPOIByAddressButton = findViewById(R.id.add_poi_by_address_button);
+        addPOIByAddressButton.setOnClickListener(v -> toggleAddressInputMode());
+
+        // Initialize "Find nearest POIs" button
         Button findNearestButton = findViewById(R.id.find_nearest_button); // Variable "findNearestButton" of type Button is equal to ID find_nearest_button
         findNearestButton.setOnClickListener(v -> findNearestPOIsAndDisplay()); // Whenever the button is clicked, view resets
 
+        // Initialize "Add POI" (by clicking) button
+        addPOIButton = findViewById(R.id.add_poi_button);
+        addPOIButton.setOnClickListener(v -> togglePOIAddingMode());
+
+        //Initialize "Delete POI" button
+        deletePOIButton = findViewById(R.id.delete_poi_button);
+        deletePOIButton.setOnClickListener(v -> {
+            isDeleteMode = !isDeleteMode;
+            if (isDeleteMode) {
+                deletePOIButton.setText("Cancel");
+                deletePOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_red_dark));
+                Toast.makeText(this, "Tap a POI to delete it", Toast.LENGTH_SHORT).show();
+            } else {
+                deletePOIButton.setText("Delete POI");
+                deletePOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_dark));
+            }
+        });
 
         // Initializing client location
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+        // Initializing drawer
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.drawer_layout), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+
+            // Apply padding to drawer content
+            View drawerContent = findViewById(R.id.nav_view);
+            drawerContent.setPadding(
+                    drawerContent.getPaddingStart(),
+                    systemBars.top + 16,  // Status bar height + 16dp extra
+                    drawerContent.getPaddingEnd(),
+                    systemBars.bottom + 16 // Navigation bar height + 16dp extra
+            );
+
+            // Also apply insets to main content if needed
+            View mainContent = findViewById(R.id.main_content);
+            mainContent.setPadding(
+                    systemBars.left,
+                    systemBars.top,
+                    systemBars.right,
+                    systemBars.bottom
+            );
+
             return insets;
         });
-
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
     }
+
+    /**
+     * Callback method triggered when the Google Map is ready to be used.
+     *
+     * This method:
+     * - Actually sets up the map object after initialization
+     * - Requests location permissions
+     * - Retrieves the user's last known location
+     * - Moves the camera to the user's location
+     * - Initializes Points of Interest
+     *
+     * @param googleMap The GoogleMap object representing the map
+     */
     @Override
     public void onMapReady(@NonNull GoogleMap googleMap) {
         mMap = googleMap; // GoogleMap Object
+        mMap.getUiSettings().setAllGesturesEnabled(true); //UI
 
         // Check for location permission
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -109,6 +221,58 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
         // Enable "My Location" button
         mMap.setMyLocationEnabled(true);
+
+        // Clear any existing click listeners first
+        mMap.setOnMapClickListener(null);
+
+        // Add map click listener for POI creation
+        mMap.setOnMapClickListener(latLng -> {
+            Toast.makeText(this, "Map clicked at: " + latLng.toString(), Toast.LENGTH_SHORT).show(); //debug
+            Log.d("POI_DEBUG", "Basic click test worked"); //debug
+
+            if (isAddingPOI) {
+                Log.d("POI_DEBUG", "Attempting to show dialog"); //debug
+                runOnUiThread(() -> {
+                    try {
+                        showPOICreationDialog(latLng); //Calls POI creation method
+                        Log.d("POI_DEBUG", "Dialog shown successfully"); //debug
+                    } catch (Exception e) {
+                        Log.e("POI_DEBUG", "Dialog error", e); //debug
+                    }
+                });
+            }
+        });
+
+        // Add marker click listener for POI show and deletion
+        mMap.setOnMarkerClickListener(marker -> {
+            // Find the POI associated with this marker
+            for (Map.Entry<String, Marker> entry : poiMarkers.entrySet()) { // iterating over each string,marker pairs in poiMarkers
+                if (entry.getValue().equals(marker)) {
+                    String poiId = entry.getKey();
+                    POI poi = findPOIById(poiId);
+                    if (poi != null) { // If a POI id is found
+                        if (isDeleteMode) {
+                            // Show confirmation dialog for deletion
+                            new AlertDialog.Builder(MainActivity.this)
+                                    .setTitle("Delete POI")
+                                    .setMessage("Are you sure you want to delete " + poi.getName() + "?")
+                                    .setPositiveButton("Delete", (dialog, which) -> {
+                                        deleteUserPOI(poi);
+                                        isDeleteMode = false;
+                                        deletePOIButton.setText("Delete POI");
+                                        deletePOIButton.setBackgroundColor(ContextCompat.getColor(MainActivity.this, android.R.color.holo_blue_dark));
+                                    })
+                                    .setNegativeButton("Cancel", null)
+                                    .show();
+                            return true;
+                        }
+                        // Default behavior - show info window
+                        return false;
+                    }
+                }
+            }
+            return false;
+        });
 
         // Get the last known location and update the map camera
         fusedLocationClient.getLastLocation().addOnSuccessListener(this, new OnSuccessListener<Location>() {
@@ -128,113 +292,559 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         });
     }
 
+    /**
+     * Toggles the address input mode on/off
+     */
+    private void toggleAddressInputMode() {
+        isAddingByAddress = !isAddingByAddress; //flag turns true
+
+        if (isAddingByAddress) {
+            isAddingPOI = false; // Reset other adding modes
+            addPOIButton.setText("Add POI");
+            addPOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_bright));
+
+            // Set this button's state
+            addPOIByAddressButton.setText("Cancel");
+            addPOIByAddressButton.setBackgroundColor(getResources().getColor(android.R.color.holo_red_dark));
+            showAddressInputDialog();
+        } else {
+            // Reset this button's state
+            addPOIByAddressButton.setText("Add POI by Address");
+            addPOIByAddressButton.setBackgroundColor(getResources().getColor(android.R.color.holo_purple));
+        }
+    }
+
+    /**
+     * Toggles the POI adding mode on/off
+     */
+    private void togglePOIAddingMode() {
+        isAddingPOI = !isAddingPOI;
+
+        if (isAddingPOI) {
+            addPOIButton.setText("Cancel Adding POI");
+            addPOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_red_dark));
+            Toast.makeText(this, "Tap on the map to add a POI", Toast.LENGTH_SHORT).show();
+        } else {
+            addPOIButton.setText("Add POI");
+            addPOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_bright));
+            Toast.makeText(this, "POI adding mode disabled", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Shows dialog for real-time address search with suggestions using Places Text Search (New API)
+     */
+    private void showAddressInputDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Search for Address");
+
+        // Create layout
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 50, 50, 50);
+
+        // AutoCompleteTextView for real-time search
+        AutoCompleteTextView searchInput = new AutoCompleteTextView(this);
+        searchInput.setHint("Start typing an address...");
+        searchInput.setThreshold(3); // Start searching after 3 characters
+        layout.addView(searchInput);
+
+        // ListView to show suggestions
+        ListView suggestionsList = new ListView(this);
+        suggestionsList.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400 // height for suggestions
+        ));
+        layout.addView(suggestionsList);
+
+        builder.setView(layout);
+
+        // Create adapter for suggestions
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, new ArrayList<>());
+        suggestionsList.setAdapter(adapter);
+
+        // Store returned Place objects
+        List<Place> currentPlaces = new ArrayList<>();
+
+        // Set up real-time search
+        Handler searchHandler = new Handler(Looper.getMainLooper());
+        final Runnable[] searchRunnable = {null};
+
+        // Search input listener, handles real time typing
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                // Cancel previous search
+                if (searchRunnable[0] != null) {
+                    searchHandler.removeCallbacks(searchRunnable[0]);
+                }
+
+                String query = s.toString().trim();
+                if (query.length() >= 3) {
+                    // Delay search by 300ms to avoid too many API calls
+                    Runnable newSearchRunnable = () -> searchAddresses(query, adapter, currentPlaces);
+                    searchHandler.postDelayed(newSearchRunnable, 300);
+                    searchRunnable[0] = newSearchRunnable;
+                } else {
+                    adapter.clear();
+                    adapter.notifyDataSetChanged();
+                    currentPlaces.clear();
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        // Create the dialog first so we can dismiss it in the click listener
+        AlertDialog dialog = builder.setNegativeButton("Cancel", (d, which) -> {
+            toggleAddressInputMode();
+            d.cancel();
+        }).create();
+
+        // Handle poi address selection
+        suggestionsList.setOnItemClickListener((parent, view, position, id) -> {
+            try {
+                Log.d("PLACE_CLICK", "Item clicked at position: " + position + ", currentPlaces size: " + currentPlaces.size());
+
+                // Gets dynamic position of user to bias search results
+                if (position >= 0 && position < currentPlaces.size()) {
+                    Place selectedPlace = currentPlaces.get(position);
+                    Log.d("PLACE_CLICK", "Selected place: " + (selectedPlace != null ? selectedPlace.getDisplayName() : "null"));
+
+                    if (selectedPlace != null && selectedPlace.getLocation() != null) {
+                        // Move camera to location
+                        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(selectedPlace.getLocation(), 15));
+
+                        // Show POI creation dialog with place name as default
+                        String placeName = selectedPlace.getDisplayName() != null ?
+                                selectedPlace.getDisplayName() : "New Location";
+
+                        // Dismiss the search dialog first
+                        dialog.dismiss();
+
+                        // CREATES NEW POI (cals method) BASED ON THE SELECTED NAME AND FETCHES LOCATION
+                        showPOICreationDialog(selectedPlace.getLocation(), placeName);
+
+                        Toast.makeText(this, "Location found: " + placeName, Toast.LENGTH_SHORT).show();
+
+                        // Reset address input mode
+                        toggleAddressInputMode();
+                    } else {
+                        Log.e("PLACE_CLICK", "Selected place is null or has no location data");
+                        Toast.makeText(this, "Location data not available for this place", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Log.e("PLACE_CLICK", "Invalid position: " + position + " for size: " + currentPlaces.size());
+                    Toast.makeText(this, "Invalid selection", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                Log.e("PLACE_CLICK", "Error handling place selection", e);
+                Toast.makeText(this, "Error selecting place: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        dialog.show();
+    }
+
+    /**
+     * Search for address suggestions using Places Autocomplete API
+     */
+    private void searchAddresses(String query, ArrayAdapter<String> adapter, List<Place> currentPlaces) {
+        // Define the fields you want (required!)
+        List<Place.Field> placeFields = Arrays.asList(
+                Place.Field.ID,
+                Place.Field.DISPLAY_NAME,  // Use DISPLAY_NAME instead of NAME
+                Place.Field.LOCATION //latlng
+        );
+
+        // Build the request - using dynamic location bias based on user location
+        // Use the builder to create a SearchByTextRequest object.
+        SearchByTextRequest.Builder requestBuilder = SearchByTextRequest.builder(query, placeFields)
+                .setMaxResultCount(5);
+
+        // Add location bias if user location is available
+        if (userLocation != null) {
+            // Create a circular bias around user location (20km radius)
+            CircularBounds circularBias = CircularBounds.newInstance(userLocation, 20000.0); // 20km radius
+            requestBuilder.setLocationBias(circularBias);
+            Log.d("SEARCH", "Using location bias around user location: " + userLocation.toString());
+        } else {
+            Log.d("SEARCH", "No user location available, using IP-based bias");
+            // If no user location, Google will use IP-based bias automatically
+        }
+
+        SearchByTextRequest searchByTextRequest = requestBuilder.build();
+
+        // Perform search
+        placesClient.searchByText(searchByTextRequest)
+                .addOnSuccessListener(response -> {
+                    List<Place> places = response.getPlaces(); // gets places objects as list
+
+                    // Clear the existing places
+                    adapter.clear();
+                    currentPlaces.clear();
+
+                    // For each place found, get its name and add the place object to currentPlaces
+                    for (Place place : places) {
+                        if (place.getDisplayName() != null) {
+                            adapter.add(place.getDisplayName());
+                            currentPlaces.add(place); // Add the Place object to currentPlaces
+                        }
+                    }
+
+                    adapter.notifyDataSetChanged();
+                })
+                .addOnFailureListener(e -> {
+                    Log.e("Places", "Search by text failed: " + e.getMessage());
+                    Toast.makeText(this, "Search failed: " + e.getLocalizedMessage(), Toast.LENGTH_SHORT).show();
+                });
+    }
+
+    /**
+     * Shows POI creation dialog with just location (for map clicks)
+     */
+    private void showPOICreationDialog(LatLng location) {
+        showPOICreationDialog(location, ""); // Call the new version with empty name
+    }
+
+    /**
+     * Overload, Shows dialog for creating a new POI at the specified address
+     */
+    private void showPOICreationDialog(LatLng location, String defaultName) {
+        // Check if there's already a POI at this location
+        POI existingPOI = findPOIAtLocation(location);
+        boolean isEditing = existingPOI != null;
+
+        // Create dialog layout
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 50, 50, 50);
+
+        // POI Name input with default value
+        EditText nameInput = new EditText(this);
+        nameInput.setText(defaultName != null ? defaultName : "");
+        nameInput.setHint("Enter POI name");
+        layout.addView(nameInput);
+
+        // POI Type spinner
+        Spinner typeSpinner = new Spinner(this);
+        String[] poiTypes = {"Restaurant", "Historical Site", "Park"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, poiTypes);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        typeSpinner.setAdapter(adapter);
+        // Set selected type if editing
+        if (isEditing) {
+            if (existingPOI instanceof RestaurantPOI) {
+                typeSpinner.setSelection(0);
+            } else if (existingPOI instanceof HistoricalPOI) {
+                typeSpinner.setSelection(1);
+            } else if (existingPOI instanceof ParkPOI) {
+                typeSpinner.setSelection(2);
+            }
+        }
+        layout.addView(typeSpinner);
+
+        // Additional info input (cuisine type, description, etc.)
+        EditText additionalInfoInput = new EditText(this);
+        additionalInfoInput.setHint("Additional info (cuisine type, description, etc.)");
+        if (isEditing) {
+            if (existingPOI instanceof RestaurantPOI) {
+                additionalInfoInput.setText(((RestaurantPOI) existingPOI).getCuisineType());
+            } else if (existingPOI instanceof HistoricalPOI) {
+                additionalInfoInput.setText(((HistoricalPOI) existingPOI).getDescription());
+            } else if (existingPOI instanceof ParkPOI) {
+                additionalInfoInput.setText(((ParkPOI) existingPOI).getDescription());
+            }
+        }
+        layout.addView(additionalInfoInput);
+
+        // Create dialog
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(isEditing ? "Edit POI" : "Create New POI")
+                .setView(layout)
+                .setPositiveButton(isEditing ? "Update" : "Create", (dialog, which) -> { //no update feature implemented yet
+                    String name = nameInput.getText().toString().trim();
+                    String additionalInfo = additionalInfoInput.getText().toString().trim();
+                    String selectedType = typeSpinner.getSelectedItem().toString();
+
+                    if (name.isEmpty()) {
+                        Toast.makeText(this, "Please enter a POI name", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    if (additionalInfo.isEmpty()) {
+                        additionalInfo = getDefaultAdditionalInfo(selectedType);
+                    }
+
+                    // Create new POI
+                    createNewPOI(name, location, selectedType, additionalInfo);
+
+                    // Reset adding modes
+                    resetPOIAddingMode();
+                    if (isAddingByAddress) {
+                        isAddingByAddress = false;
+                        addPOIByAddressButton.setText("Add POI by Address");
+                        addPOIByAddressButton.setBackgroundColor(getResources().getColor(android.R.color.holo_purple));
+                    }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    // Reset adding modes on cancel
+                    resetPOIAddingMode();
+                    if (isAddingByAddress) {
+                        isAddingByAddress = false;
+                        addPOIByAddressButton.setText("Add POI by Address");
+                        addPOIByAddressButton.setBackgroundColor(getResources().getColor(android.R.color.holo_purple));
+                    }
+                });
+        builder.setCancelable(false) // Prevent accidental cancellation
+                .show();
+    }
+
+    /**
+     * Creates a new POI based on user input
+     */
+    private void createNewPOI(String name, LatLng location, String type, String additionalInfo) {
+        POI newPOI;
+        String poiId = UUID.randomUUID().toString(); // Crate random ID for the POI
+
+        // Debug log
+        System.out.println("Creating POI: " + name + " at " + location.latitude + ", " + location.longitude);
+
+        switch (type) {
+            case "Restaurant":
+                newPOI = new RestaurantPOI(name, location, additionalInfo);
+                break;
+            case "Historical Site":
+                newPOI = new HistoricalPOI(name, location, additionalInfo);
+                break;
+            case "Park":
+                newPOI = new ParkPOI(name, location, additionalInfo);
+                break;
+            default:
+                newPOI = new POI(name, location);
+                break;
+        }
+
+        // Set the ID for the POI
+        newPOI.id = poiId;
+
+        // Add the POI
+        addUserPOI(newPOI);
+
+        // Debug log
+        System.out.println("POI created with ID: " + newPOI.getId());
+    }
+
+    /**
+     * Update existing POI, not implemented
+     */
+    private void updateExistingPOI(POI existingPOI, String name, LatLng location, String type, String additionalInfo) {
+        // Remove old POI
+        deleteUserPOI(existingPOI);
+
+        // Create new POI with same ID
+        POI updatedPOI;
+        String poiId = existingPOI.getId();
+
+        switch (type) {
+            case "Restaurant":
+                updatedPOI = new RestaurantPOI(name, location, additionalInfo);
+                break;
+            case "Historical Site":
+                updatedPOI = new HistoricalPOI(name, location, additionalInfo);
+                break;
+            case "Park":
+                updatedPOI = new ParkPOI(name, location, additionalInfo);
+                break;
+            default:
+                updatedPOI = new POI(name, location);
+                break;
+        }
+
+        // Set the same ID
+        updatedPOI.id = poiId;
+
+        // Add the updated POI
+        addUserPOI(updatedPOI);
+
+        Toast.makeText(this, "POI updated successfully!", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Helper method to reset POI adding mode
+     */
+    private void resetPOIAddingMode() {
+        if (isAddingPOI) {
+            isAddingPOI = false;
+            addPOIButton.setText("Add POI");
+            addPOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_bright));
+        }
+    }
+
+    /**
+     * Helper method to search POI by ID
+     */
+    private POI findPOIById(String id) {
+        for (POI poi : allPOIs) {
+            if (poi.getId().equals(id)) {
+                return poi;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Helper method to find POI
+     */
+    private POI findPOIAtLocation(LatLng location) {
+        final double TOLERANCE = 0.0001; // Small tolerance for location comparison
+
+        for (POI poi : allPOIs) {
+            if (Math.abs(poi.getLocation().latitude - location.latitude) < TOLERANCE &&
+                    Math.abs(poi.getLocation().longitude - location.longitude) < TOLERANCE) {
+                return poi;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Helper method that provides default additional info based on POI type
+     */
+    private String getDefaultAdditionalInfo(String type) {
+        switch (type) {
+            case "Restaurant":
+                return "Unknown Cuisine";
+            case "Historical Site":
+                return "Historical Site";
+            case "Park":
+                return "Public Park";
+            default:
+                return "Point of Interest";
+        }
+    }
+
+
+    /**
+     * Populates the Points of Interest (POI) map with predefined locations.
+     *
+     * This method adds various types of POIs to the map, including:
+     * - Restaurants (with cuisine types)
+     * - Historical sites
+     * - Parks
+     *
+     * Each POI is added using the x method.
+     */
     private void initializePOIMap() {
 
-        // Add POIs using a helper method
-        addPOI(new RestaurantPOI("El Hueco", new LatLng(20.6049088, -103.4153376), "Bar"));
-        addPOI(new RestaurantPOI("Tacos El Ojitos", new LatLng(20.6083417, -103.4326965), "Tacos"));
-        addPOI(new RestaurantPOI("Charlie Boy Burgers & Shakes", new LatLng(20.628596, -103.409205), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Hamburguesas Beto's", new LatLng(20.641518, -103.420175), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Mile Pizzas a la Lena", new LatLng(20.641990, -103.401016), "Pizzas"));
-        addPOI(new POI("Casa Macaria Cruz del Sur", new LatLng(20.642652, -103.387851)));
-        addPOI(new RestaurantPOI("Pizzas D'TERE", new LatLng(20.650405, -103.432099), "Pizzas"));
-        addPOI(new RestaurantPOI("Asador Santa Anita", new LatLng(20.560811, -103.448668), "Carne Asada"));
-        addPOI(new RestaurantPOI("Danko Deep Dish", new LatLng(20.637636, -103.311561), "Pizza"));
-        addPOI(new RestaurantPOI("Muchang", new LatLng(20.65440121259779, -103.40111706108912), "Oriental"));
-        addPOI(new RestaurantPOI("Karnitas La Terraza", new LatLng(20.67235947117652, -103.43024405924054), "Tacos"));
-        addPOI(new RestaurantPOI("Benitos Pizza & Pasta", new LatLng(20.642920136197883, -103.41698452809095), "Pizza"));
-        addPOI(new RestaurantPOI("Archipielago Pizza", new LatLng(20.676630936456995, -103.36731186108844), "Pizza"));
-        addPOI(new RestaurantPOI("Super Taco Tomas", new LatLng(20.673799864260175, -103.38631943225309), "Tacos"));
-        addPOI(new RestaurantPOI("Ragazzi Pizzeria", new LatLng(20.677997908494408, -103.37250427643016), "Pizza"));
-        addPOI(new RestaurantPOI("Tripitas Tacos Gdl", new LatLng(20.694243134278665, -103.3270260524139), "Tacos"));
-        addPOI(new RestaurantPOI("Algún Lugar Pizzería", new LatLng(20.660623118786983, -103.40551649177243), "Pizza"));
-        addPOI(new RestaurantPOI("La Churrasquería By Maneiro", new LatLng(20.682163472904335, -103.38976951757914), "Buffet"));
-        addPOI(new RestaurantPOI("Carlos", new LatLng(20.657948383652645, -103.36983603019439), "Tacos"));
-        addPOI(new RestaurantPOI("Antojitos Mexicanos Lulú", new LatLng(20.654686674361386, -103.4506738087742), "Mexicana"));
-        addPOI(new RestaurantPOI("Casa Ledezma", new LatLng(20.641011442070898, -103.3122143764312), "Mexicana"));
-        addPOI(new RestaurantPOI("Carnitas Vale", new LatLng(20.742718615700394, -103.40664526293457), "Tacos"));
-        addPOI(new RestaurantPOI("LOS ROJOS DE TJ", new LatLng(20.677464222168737, -103.43642208992385), "Tacos"));
-        addPOI(new RestaurantPOI("NASSH", new LatLng(20.65905555970178, -103.33620579177244), "Tortas"));
-        addPOI(new RestaurantPOI("¿Dónde María?", new LatLng(20.655682724991717, -103.31798639177258), "Tacos"));
-        addPOI(new RestaurantPOI("Yogibear", new LatLng(20.665643928013576, -103.33248753040529), "Pizza"));
-        addPOI(new RestaurantPOI("Suki Sushi Buffet", new LatLng(20.675020735479443, -103.35100544759479), "Sushi"));
-        addPOI(new RestaurantPOI("El Güero Fermín", new LatLng(20.663094015683196, -103.4309936745826), "Tacos"));
-        addPOI(new RestaurantPOI("Tripitas Maribel", new LatLng(20.675379238113024, -103.33939753410117), "Tacos"));
-        addPOI(new RestaurantPOI("Tripitas Los Panchos", new LatLng(20.67109177212732, -103.3259117118514), "Tacos"));
-        addPOI(new RestaurantPOI("Felipe Zetter", new LatLng(20.633163215882174, -103.43201810952024), "Tacos"));
-        addPOI(new RestaurantPOI("El Rojo", new LatLng(20.689461244105246, -103.3593033214712), "Tacos"));
-        addPOI(new RestaurantPOI("Tripitas Don Pancho", new LatLng(20.678501627857997, -103.38333623857677), "Tacos"));
-        addPOI(new RestaurantPOI("Tripitas Don Ramón", new LatLng(20.70032364996633, -103.35570217827757), "Tacos"));
-        addPOI(new RestaurantPOI("Las Carnitas de Don Andrés", new LatLng(20.64484199871797, -103.29164764759565), "Tacos"));
-        addPOI(new RestaurantPOI("Gallo Cervecero", new LatLng(20.68191524301125, -103.36411546035171), "Buffet"));
-        addPOI(new RestaurantPOI("CORPAR La Casa del Taco", new LatLng(20.674388849767112, -103.3938747610885), "Tacos"));
-        addPOI(new RestaurantPOI("Barbacoa Gamero", new LatLng(20.675114983363468, -103.42129643582885), "Tacos"));
-        addPOI(new RestaurantPOI("Bocazza Pizza & Chela", new LatLng(20.678943863304948, -103.35322827662436), "Pizza"));
-        addPOI(new RestaurantPOI("Chinaloa", new LatLng(20.675020345603308, -103.34767050450789), "Oriental"));
-        addPOI(new RestaurantPOI("Mono de Mar", new LatLng(20.675301297387097, -103.41594786583023), "Mariscos"));
-        addPOI(new RestaurantPOI("Los de Guadalupe", new LatLng(20.66202511077841, -103.42796760261925), "Tacos"));
-        addPOI(new RestaurantPOI("Good Morning Sunshine", new LatLng(20.6686876320358, -103.36561511796026), "Desayuno"));
-        addPOI(new RestaurantPOI("Carnes En Su Julio", new LatLng(20.73326932738262, -103.38711640815843), "Tacos"));
-        addPOI(new RestaurantPOI("El Machin", new LatLng(20.673501036683515, -103.33373486398341), "Tacos"));
-        addPOI(new RestaurantPOI("Ahumaditos", new LatLng(20.699992205527906, -103.32632719466501), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Yo Amo La Pizza", new LatLng(20.65888182617726, -103.44269191976154), "Pizza"));
-        addPOI(new RestaurantPOI("Tortas Planchadas de Paty Berber", new LatLng(20.669091131582302, -103.4210097007723), "Tortas"));
-        addPOI(new RestaurantPOI("Burger Club", new LatLng(20.666419480760368, -103.36236634679551), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Capitako", new LatLng(20.731418061402838, -103.4129103333), "Tacos"));
-        addPOI(new RestaurantPOI("Acá las tortas", new LatLng(20.678179538066633, -103.37593374469313), "Tortas"));
-        addPOI(new RestaurantPOI("Los Guasaveños", new LatLng(20.673434277792573, -103.42691058957773), "HotDog"));
-        addPOI(new RestaurantPOI("KeBurros", new LatLng(20.66580089678315, -103.40775879651271), "Burritos"));
-        addPOI(new RestaurantPOI("La Casa de Doña Ines", new LatLng(20.699527006144105, -103.37561230077159), "Desayuno"));
-        addPOI(new RestaurantPOI("La Ciabatta", new LatLng(20.672393247273774, -103.3574514033342), "Italiana"));
-        addPOI(new RestaurantPOI("Los Clásicos", new LatLng(20.629483616971726, -103.42323439168777), "Tacos"));
-        addPOI(new RestaurantPOI("Bear&Wolf", new LatLng(20.67306847504227, -103.42851709281867), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Mama Burguers", new LatLng(20.654114873537022, -103.42855811426675), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Sham Burgers", new LatLng(20.710607253430428, -103.39689681210261), "Hamburguesas"));
-        addPOI(new RestaurantPOI("El rincon del asadero", new LatLng(20.664511998146896, -103.39159581611332), "Tacos"));
-        addPOI(new RestaurantPOI("Los De Papa", new LatLng(20.633866956330056, -103.42598765650864), "Tacos"));
-        addPOI(new RestaurantPOI("Los Mochibrothers", new LatLng(20.663556067292728, -103.4006926946657), "Hot Dog"));
-        addPOI(new RestaurantPOI("La Rafaela", new LatLng(20.66223975548912, -103.42273276767746), "Mexicana"));
-        addPOI(new RestaurantPOI("Momotabi Mochi Market", new LatLng(20.67614944322779, -103.35700613019515), "Helado"));
-        addPOI(new RestaurantPOI("Blacksoul", new LatLng(20.67761619743144, -103.37013798912481), "Desayuno"));
-        addPOI(new RestaurantPOI("Bosco Bianco", new LatLng(20.66316600621923, -103.43642403514838), "Helado"));
-        addPOI(new RestaurantPOI("Las Grandes Tortas Ahogadas", new LatLng(20.683661840559594, -103.34751598727773), "Tortas"));
-        addPOI(new RestaurantPOI("El Chavito", new LatLng(20.68432006536184, -103.37022286398322), "Hot Dog"));
-        addPOI(new RestaurantPOI("Yakomi", new LatLng(20.677858834829667, -103.37118456952403), "Oriental"));
-        addPOI(new RestaurantPOI("El Terrible Juan", new LatLng(20.66527238068439, -103.39455485980912), "Desayuno"));
-        addPOI(new RestaurantPOI("Los Arre", new LatLng(20.629017731012247, -103.39365900503277), "Carne Asada"));
-        addPOI(new RestaurantPOI("Templo Bonsai Café", new LatLng(20.676768835929277, -103.36759786898813), "Desayuno"));
-        addPOI(new RestaurantPOI("La hamburguesería central", new LatLng(20.673554, -103.365867), "Hamburguesas"));
-        addPOI(new RestaurantPOI("EL RINCON DE LALO DE SAHUAYO", new LatLng(20.631301, -103.407347), "Desayuno"));
-        addPOI(new RestaurantPOI("Little Caesars", new LatLng(20.611527, -103.416318), "Pizza"));
-        addPOI(new RestaurantPOI("Chiles'n verdes", new LatLng(20.634632, -103.392027), "Tacos"));
-        addPOI(new RestaurantPOI("Coco Cafe", new LatLng(20.587994, -103.440649), "Desayuno"));
-        addPOI(new RestaurantPOI("Campomar Punto Sur", new LatLng(20.569618, -103.454329), "Mariscos"));
-        addPOI(new RestaurantPOI("Pizzeria de Barrio", new LatLng(20.677642, -103.36759), "Pizza"));
-        addPOI(new RestaurantPOI("Mochitacos", new LatLng(20.717768, -103.455170), "Tacos"));
-        addPOI(new RestaurantPOI("Taylor Street Pizza", new LatLng(20.729325, -103.434846), "Pizza"));
-        addPOI(new RestaurantPOI("El Rinconcito de las Tortas", new LatLng(20.741844, -103.407740), "Tortas"));
-        addPOI(new RestaurantPOI("Bullsnack", new LatLng(20.666536, -103.37853), "Fast Food"));
-        addPOI(new RestaurantPOI("Blazz California Burritos", new LatLng(20.706061, -103.416029), "Burritos"));
-        addPOI(new RestaurantPOI("Hyper Restaurante Espacial", new LatLng(20.674176, -103.371238), "Fast Food"));
-        addPOI(new HistoricalPOI("Biblioteca ITESO", new LatLng(20.606140222513815, -103.41562983271703), "Mas de 11,200 libros"));
-        addPOI(new ParkPOI("Cerro de Santa Maria", new LatLng(20.61240154566243, -103.38205662272627), "Bueno para correr"));
-        addPOI(new RestaurantPOI("Qin ITESO", new LatLng(20.612722889645752, -103.41003742697902), "Oriental"));
-        addPOI(new RestaurantPOI("Carls Jr ITESO", new LatLng(20.611932786534606, -103.41669788079429), "Hamburguesas"));
-        addPOI(new RestaurantPOI("Flor de Cordoba ITESO", new LatLng(20.608081614415887, -103.41400360188156), "Cafe"));
-        addPOI(new RestaurantPOI("La Esquinita", new LatLng(20.603662076426726, -103.41249322821481), "Tacos"));
-        addPOI(new RestaurantPOI("Wings Army", new LatLng(20.61268151963973, -103.4159347625902), "Alitas"));
-    }
-    private void addPOI(POI poi) {
-        // Receives POI Class and Subclasses as parameter
-        // Add marker to map
-        mMap.addMarker(new MarkerOptions()
-                .position(poi.getLocation())
-                .title(poi.getDisplayInfo()));
+        allPOIs.clear();
 
-        // Add to poiMap for KNN
-        poiMap.put(poi.getName(), poi.getLocation());
+        // Add user-generated POIs from local storage
+        List<POI> userPOIs = localStorage.loadUserPOIs();
+        allPOIs.addAll(userPOIs);
+
+        // Add all POIs to map
+        for (POI poi : allPOIs) {
+            addPOIToMap(poi);
+        }
     }
 
+    /**
+     * Adds a Point of Interest (POI) to the map and the POI collection.
+     *
+     * This method:
+     * - Adds a marker to the Google Map for the POI
+     * - Stores the POI in the {@code poiMap} for nearest neighbor calculations
+     *
+     * @param poi The Point of Interest to be added
+     */
+    private void addPOIToMap(POI poi) {
+        try {
+            // Create marker with different colors for different POI types
+            MarkerOptions markerOptions = new MarkerOptions()
+                    .position(poi.getLocation())
+                    .title(poi.getName())
+                    .snippet(poi.getDisplayInfo());
+
+            // Set different marker colors for different POI types
+            if (poi instanceof RestaurantPOI) {
+                markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
+            } else if (poi instanceof HistoricalPOI) {
+                markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE));
+            } else if (poi instanceof ParkPOI) {
+                markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
+            } else {
+                markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE));
+            }
+
+            Marker marker = mMap.addMarker(markerOptions);
+            if (marker != null) {
+                poiMarkers.put(poi.getId(), marker);
+
+                // Also add to poiMap for KNN algorithm
+                poiMap.put(poi.getName(), poi.getLocation());
+
+                System.out.println("Marker added to map for POI: " + poi.getName());
+            } else {
+                System.out.println("Failed to add marker to map for POI: " + poi.getName());
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error adding POI to map: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Adds user POI to memory
+     */
+    public void addUserPOI(POI newPOI) {
+        // Add to our collections
+        allPOIs.add(newPOI);
+
+        // Save to local storage
+        localStorage.addPOI(newPOI);
+
+        // Add to map
+        addPOIToMap(newPOI);
+
+        Toast.makeText(this, "POI '" + newPOI.getName() + "' saved successfully!", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Deletes user POI from memory
+     */
+    public void deleteUserPOI(POI poi) {
+        // Remove from collections
+        allPOIs.remove(poi);
+        poiMap.remove(poi.getName());
+
+        // Remove from local storage
+        localStorage.removePOI(poi.getId());
+
+        // Remove marker from map
+        Marker marker = poiMarkers.get(poi.getId());
+        if (marker != null) {
+            marker.remove();
+            poiMarkers.remove(poi.getId());
+        }
+
+        Toast.makeText(this, "POI deleted", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Finds and displays the nearest Points of Interest to the user's location.
+     *
+     * This method:
+     * - Retrieves the 5 nearest POIs within 5 km
+     * - Adds markers for these POIs on the map
+     * - Displays an AlertDialog with the names of the nearest POIs
+     */
     private void findNearestPOIsAndDisplay(){
         // Create List called nearestPOIs and retrieve the nearest 5 POIs with method findNearestPOIs
         List<POI> nearestPOIs = findNearestPOIs(userLocation.latitude, userLocation.longitude, 5);
@@ -258,15 +868,35 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .setPositiveButton("OK", null)
                 .show();
     }
+
+    /**
+     * Works with Distance calculator
+     */
     public double calculateDistance(double lat1, double lon1, double lat2, double lon2, DistanceCalculator haversine) {
         return haversine.calculate(lat1, lon1, lat2, lon2);
     }
+
+    /**
+     * Finds the nearest Points of Interest (POIs) to a given user location.
+     *
+     * This method:
+     * - Calculates distances between the user's location and all available POIs
+     * - Filters POIs within a maximum distance of 5 km
+     * - Sorts the POIs by their proximity to the user's location
+     *
+     * @param userLat Latitude of the user's current location
+     * @param userLng Longitude of the user's current location
+     * @param k Maximum number of nearest POIs to return (not used in current implementation)
+     * @return A list of POIs sorted by their distance from the user, within 5 km
+     *
+     * @see DistanceCalculator Haversine distance calculation interface
+     */
     public List<POI> findNearestPOIs(double userLat, double userLng, int k) {
-        List<POI> pois = new ArrayList<>(poiMap.size()); // List to hold nearest distances and corresponding POIs
-        double maxDistanceKm = 5.0; // Max distance
+        List<POI> nearbyPOIs = new ArrayList<>();
+        final double maxDistanceKm = 5.0;
 
         DistanceCalculator haversine = (lat1, lon1, lat2, lon2) -> {
-            double R = 6371; // Radius of Earth in kilometers
+            double R = 6371;
             double dLat = Math.toRadians(lat2 - lat1);
             double dLon = Math.toRadians(lon2 - lon1);
             double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -276,41 +906,95 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             return R * c;
         };
 
-        // Populate the list with POIs from map
-        for (Map.Entry<String, LatLng> entry : poiMap.entrySet()) {
-            double distance = calculateDistance(userLat, userLng, entry.getValue().latitude, entry.getValue().longitude, haversine);
+        // Use allPOIs
+        for (POI poi : allPOIs) {
+            double distance = calculateDistance(userLat, userLng,
+                    poi.getLocation().latitude, poi.getLocation().longitude, haversine);
 
-            // Check if the POI is within the maximum distance
             if (distance <= maxDistanceKm) {
-                POI poi = new POI(entry.getKey(), entry.getValue());
-                poi.setName(entry.getKey());
-                poi.setLocation(entry.getValue());
-                pois.add(poi);
+                nearbyPOIs.add(poi);
             }
         }
 
-        // Sort POIs based on distance from user location
-        pois.sort(Comparator.comparingDouble(poi ->
-                calculateDistance(userLat, userLng, poi.location.latitude, poi.location.longitude, haversine)));
+        // Sort by distance
+        nearbyPOIs.sort(Comparator.comparingDouble(poi ->
+                calculateDistance(userLat, userLng,
+                        poi.getLocation().latitude, poi.getLocation().longitude, haversine)));
 
-        return pois; // Return the list of nearest POIs
+        return nearbyPOIs.size() > k ? nearbyPOIs.subList(0, k) : nearbyPOIs;
     }
 
+
+    /**
+     * Functional interface for calculating distances between geographical coordinates.
+     *
+     * Uses the Haversine formula to compute great-circle distances between two points.
+     */
     @FunctionalInterface
     public interface DistanceCalculator {
+        /**
+         * Calculates the distance between two points on Earth.
+         *
+         * @param lat1 Latitude of the first point
+         * @param lon1 Longitude of the first point
+         * @param lat2 Latitude of the second point
+         * @param lon2 Longitude of the second point
+         * @return Distance between the points in kilometers
+         */
         double calculate(double lat1, double lon1, double lat2, double lon2);
     }
 
-    // Helper classes to store POI
-    public class POI {
+    // Export user POIs to JSON file
+    public void exportUserPOIs() {
+        List<POI> userPOIs = localStorage.loadUserPOIs();
+
+        if (userPOIs.isEmpty()) {
+            Toast.makeText(this, "No user POIs to export", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        JSONArray jsonArray = new JSONArray();
+        for (POI poi : userPOIs) {
+            JSONObject json = poi.toJSON();
+            if (json != null) {
+                jsonArray.put(json);
+            }
+        }
+
+        // Save to external storage or share
+        try {
+            String fileName = "my_pois_" + System.currentTimeMillis() + ".json";
+            File file = new File(getExternalFilesDir(null), fileName);
+
+            FileWriter writer = new FileWriter(file);
+            writer.write(jsonArray.toString(2)); // Pretty print
+            writer.close();
+
+            Toast.makeText(this, "POIs exported to " + file.getPath(), Toast.LENGTH_LONG).show();
+        } catch (IOException e) {
+            Toast.makeText(this, "Export failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Represents a generic Point of Interest with a name and location.
+     *
+     * This base class serves as a foundation for more specific POI types.
+     * Subclasses include RestaurantPOI, HistoricalPOI, and ParkPOI.
+     */
+    public static class POI {
         // Attributes
         String name;
         LatLng location;
+        String id;
 
         // Constructor
         public POI(String name, LatLng location) {
             this.name = name;
             this.location = location;
+            this.id = UUID.randomUUID().toString();;
         }
 
         // getters and setters
@@ -326,15 +1010,54 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         public void setLocation(LatLng location) {
             this.location = location;
         }
-
+        public String getId(){ return id; }
         public String getPOIType(){
             return "Simple POI";
         };
         public String getDisplayInfo() {
             return name + " (" + getPOIType() + ")";
         }
+
+
+        //Method that converts POI to JSON for local storage
+        public JSONObject toJSON() {
+            try {
+                JSONObject json = new JSONObject();
+                json.put("id", id);
+                json.put("name", name);
+                json.put("latitude", location.latitude);
+                json.put("longitude", location.longitude);
+                json.put("poiType", getPOIType());
+                return json;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
+        //Method to Create POI from JSON
+        public static POI fromJSON(JSONObject json){
+            try {
+                String id = json.getString("id");
+                String name = json.getString("name");
+                double lat = json.getDouble("latitude");
+                double lng = json.getDouble("longitude");
+
+                LatLng location = new LatLng(lat, lng);
+                POI poi = new POI(name, location);
+                poi.id = id;
+                return poi;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
-    public class RestaurantPOI extends POI {
+
+    /**
+     * Represents a restaurant Point of Interest with additional cuisine type information.
+     * Extends the base POI class to include specific restaurant details.
+     */
+    public static class RestaurantPOI extends POI {
         // Attribute
         private String cuisineType;
 
@@ -344,10 +1067,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             this.cuisineType = cuisineType;
         }
 
-        @Override
-        public String getPOIType() {
-            return cuisineType;
-        }
         // getters and setters
         public String getCuisineType() {
             return cuisineType;
@@ -355,8 +1074,51 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         public void setCuisineType(String cuisineType) {
             this.cuisineType = cuisineType;
         }
+
+        @Override
+        public String getPOIType() {
+            return cuisineType;
+        }
+
+        // Create JSON restaurant data and override for restaurant specific errors
+        @Override
+        public JSONObject toJSON(){
+            JSONObject json = super.toJSON();
+            try {
+                if (json != null) {
+                    json.put("cuisineType", cuisineType);
+                    json.put("className", "RestaurantPOI");
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return json;
+        }
+
+        // Method to create restaurant POI from JSON data
+        public static RestaurantPOI fromJSON(JSONObject json) {
+            try {
+                String name = json.getString("name");
+                double lat = json.getDouble("latitude");
+                double lng = json.getDouble("longitude");
+                String cuisineType = json.optString("cuisineType", "Unknown");
+
+                LatLng location = new LatLng(lat, lng);
+                RestaurantPOI poi = new RestaurantPOI(name, location, cuisineType);
+                poi.id = json.getString("id");
+                return poi;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
-    public class HistoricalPOI extends POI{
+
+    /**
+     * Represents a historical Point of Interest with a descriptive attribute.
+     * Extends the base POI class to include historical site details.
+     */
+    public static class HistoricalPOI extends POI{
         // Attribute
         private String description;
 
@@ -366,15 +1128,54 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             this.description = description;
         }
 
+        // getters and setters
+        public String getDescription(){ return description; }
+        public void setDescription(String Description){ this.description = description; }
+
         @Override
         public String getPOIType(){
             return description;
         }
-        // getters and setters
-        public String getDescription(){ return description; }
-        public void setDescription(String Description){ this.description = description; }
+
+        // Create JSON historicalpoi data and override for historicalpoi specific errors
+        @Override
+        public JSONObject toJSON() {
+            JSONObject json = super.toJSON();
+            try {
+                if (json != null) {
+                    json.put("description", description);
+                    json.put("className", "HistoricalPOI");
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return json;
+        }
+
+        // Method to create historicalpoi POI from JSON data
+        public static HistoricalPOI fromJSON(JSONObject json) {
+            try {
+                String name = json.getString("name");
+                double lat = json.getDouble("latitude");
+                double lng = json.getDouble("longitude");
+                String description = json.optString("description", "Historical Site");
+
+                LatLng location = new LatLng(lat, lng);
+                HistoricalPOI poi = new HistoricalPOI(name, location, description);
+                poi.id = json.getString("id");
+                return poi;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
-    public class ParkPOI extends POI{
+
+    /**
+     * Represents a park Point of Interest with a descriptive attribute.
+     * Extends the base POI class to include park-specific details.
+     */
+    public static class ParkPOI extends POI{
         // Attribute
         private String description;
 
@@ -384,13 +1185,162 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             this.description = description;
         }
 
+        // getters and setters
+        public String getDescription(){ return description; }
+        public void setDescription(String Description){ this.description = description; }
+
         @Override
         public String getPOIType(){
             return description;
         }
-        // getters and setters
-        public String getDescription(){ return description; }
-        public void setDescription(String Description){ this.description = description; }
+
+        // Create JSON parkpoi data and override for parkpoi specific errors
+        @Override
+        public JSONObject toJSON() {
+            JSONObject json = super.toJSON();
+            try {
+                if (json != null) {
+                    json.put("description", description);
+                    json.put("className", "ParkPOI");
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return json;
+        }
+
+        // Method to create park POI from JSON data
+        public static ParkPOI fromJSON(JSONObject json) {
+            try {
+                String name = json.getString("name");
+                double lat = json.getDouble("latitude");
+                double lng = json.getDouble("longitude");
+                String description = json.optString("description", "Park");
+
+                LatLng location = new LatLng(lat, lng);
+                ParkPOI poi = new ParkPOI(name, location, description);
+                poi.id = json.getString("id");
+                return poi;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
+
+    /**
+     * NEW, DYNAMIC STORAGE AND POI DATA 5/22/2025
+     */
+    public class POILocalStorage {
+        static final String PREF_NAME = "poi_storage";
+        static final String KEY_USER_POIS = "user_pois";
+        SharedPreferences sharedPreferences;
+        Context context;
+
+        public POILocalStorage(Context context) {
+            this.context = context;
+            sharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        }
+
+        // Save user POIs to SharedPreferences
+        public void saveUserPOIs(List<POI> userPOIs) {
+            JSONArray jsonArray = new JSONArray(); // Save JSON as JSONArray
+
+            // Convert each POI to JSON and add to the array
+            for (POI poi : userPOIs) {
+                JSONObject json = poi.toJSON();
+                if (json != null) {
+                    jsonArray.put(json);
+                }
+            }
+
+            sharedPreferences.edit() // Edit memory
+                    .putString(KEY_USER_POIS, jsonArray.toString()) // Saving data
+                    .apply(); // Save changes
+        }
+
+        // Load user POIs from SharedPreferences
+        public List<POI> loadUserPOIs() {
+            List<POI> userPOIs = new ArrayList<>(); //Create userPOIs Array to pull JSONArray
+            String jsonString = sharedPreferences.getString(KEY_USER_POIS, "[]"); // Pull data from memory
+
+            try {
+                JSONArray jsonArray = new JSONArray(jsonString);
+
+                for (int i = 0; i < jsonArray.length(); i++) { // Iterate over saved data list
+                    JSONObject json = jsonArray.getJSONObject(i); // Pull saved data
+                    POI poi = createPOIFromJSON(json); // Convert data to POI object
+                    if (poi != null) {
+                        userPOIs.add(poi);
+                    }
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            return userPOIs;
+        }
+
+        // Helper method to create appropriate POI subclass from JSON
+        public POI createPOIFromJSON(JSONObject json) {
+            try {
+                String className = json.optString("className", "POI");
+
+                switch (className) {
+                    case "RestaurantPOI":
+                        return RestaurantPOI.fromJSON(json);
+                    case "HistoricalPOI":
+                        return HistoricalPOI.fromJSON(json);
+                    case "ParkPOI":
+                        return ParkPOI.fromJSON(json);
+                    default:
+                        return POI.fromJSON(json);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
+
+        // Add single POI
+        public void addPOI(POI poi) {
+            List<POI> userPOIs = loadUserPOIs();
+            userPOIs.add(poi);
+            saveUserPOIs(userPOIs);
+
+        }
+
+        // Remove POI by ID
+        public void removePOI(String poiId) {
+            List<POI> userPOIs = loadUserPOIs();
+            userPOIs.removeIf(poi -> poi.getId().equals(poiId));
+            saveUserPOIs(userPOIs);
+        }
+
+        // Update existing POI
+        public void updatePOI(POI updatedPOI) {
+            List<POI> userPOIs = loadUserPOIs();
+
+            for (int i = 0; i < userPOIs.size(); i++) {
+                if (userPOIs.get(i).getId().equals(updatedPOI.getId())) {
+                    userPOIs.set(i, updatedPOI);
+                    break;
+                }
+            }
+
+            saveUserPOIs(userPOIs);
+        }
+
+        // Get total count of user POIs
+        public int getUserPOICount() {
+            return loadUserPOIs().size();
+        }
+
+        // Clear all user POIs (for reset functionality)
+        public void clearAllUserPOIs() {
+            sharedPreferences.edit().remove(KEY_USER_POIS).apply();
+        }
+    }
+
 
 }
