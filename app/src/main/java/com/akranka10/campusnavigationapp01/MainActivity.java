@@ -1,17 +1,26 @@
 package com.akranka10.campusnavigationapp01;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.GravityCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.annotation.NonNull;
+
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.Priority;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
@@ -44,6 +53,7 @@ import com.google.android.libraries.places.api.net.SearchByTextRequest;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.RelativeLayout;
 import android.widget.Toast;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -74,7 +84,7 @@ import java.util.Arrays;
  * - Explore different types of POIs (Restaurants, Historical Sites, Parks)
  *
  * @author [Arantxa]
- * @version v0.3.2
+ * @version v0.4.0
  * @since [11/29/2024]
  */
 
@@ -99,7 +109,27 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private FusedLocationProviderClient fusedLocationClient; // Object FusedLocationProviderClient
     Map<String, LatLng> poiMap = new HashMap<>(); // HashMap named poiMap that relates PLACENAME String to COORDINATES LatLng // LatLng Datatype provided by google
     private LatLng userLocation; // Coordinates to store user location
+    private static final long UPDATE_INTERVAL_MS = 5000; // 5 seconds
+    private static final float PROXIMITY_RADIUS_METERS = 800; // 200m trigger radius
+    private LocationCallback locationCallback;
 
+    private long lastNotificationTime = 0;
+    private static final long NOTIFICATION_COOLDOWN_MS = 300000; // 5 minutes
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    "proximity_alerts",
+                    "Nearby Places",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("Alerts for nearby saved locations");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(channel);
+            Log.d("NOTIFICATION", "Notification channel created");
+        }
+    }
+    
     /**
      * Initializes the activity, sets up the user interface, and configures map and location services.
      *
@@ -115,6 +145,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+        createNotificationChannel();
 
         // Initialize local storage
         localStorage = new POILocalStorage(this);
@@ -164,6 +195,22 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         // Initializing client location
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+
+        // Initalizing continuos location updates for notificactions
+        createLocationCallback();
+        startLocationUpdates();
+
+        // Request notification permission (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        101
+                );
+            }
+        }
 
         // Initializing drawer
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.drawer_layout), (v, insets) -> {
@@ -219,6 +266,12 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
             return;
         }
+
+        // Enable Notifications
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+        }
+
         // Enable "My Location" button
         mMap.setMyLocationEnabled(true);
 
@@ -328,6 +381,135 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             addPOIButton.setText("Add POI");
             addPOIButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_bright));
             Toast.makeText(this, "POI adding mode disabled", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     *  Handles lifecycle events to conserve battery
+     */
+    private void startLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        fusedLocationClient.requestLocationUpdates(
+                new LocationRequest.Builder(UPDATE_INTERVAL_MS)
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                        .build(),
+                locationCallback,
+                Looper.getMainLooper()
+        );
+    }
+    private void stopLocationUpdates() {
+        fusedLocationClient.removeLocationUpdates(locationCallback);
+    }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startLocationUpdates();
+    }
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopLocationUpdates();
+    }
+
+    /**
+     *  Listens for location changes and checks for nearby POIs
+     */
+    private void createLocationCallback() {
+        locationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                if (locationResult == null) return;
+                for (Location location : locationResult.getLocations()) {
+                    LatLng userLatLng = new LatLng(location.getLatitude(), location.getLongitude());
+                    checkNearbySavedPOIs(userLatLng);
+                }
+            }
+        };
+    }
+
+    /**
+     * Compares user location and POI location for distance
+     */
+    private void checkNearbySavedPOIs(LatLng userLatLng) {
+        List<POI> nearbyPOIs = new ArrayList<>();
+        DistanceCalculator haversine = (lat1, lon1, lat2, lon2) -> {
+            double R = 6371;
+            double dLat = Math.toRadians(lat2 - lat1);
+            double dLon = Math.toRadians(lon2 - lon1);
+            double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        };
+
+        Log.d("PROXIMITY", "User location: " + userLatLng);
+        for (POI poi : allPOIs) {
+            double distance = haversine.calculate(
+                    userLatLng.latitude, userLatLng.longitude,
+                    poi.getLocation().latitude, poi.getLocation().longitude
+            );
+            Log.d("PROXIMITY", "POI: " + poi.getName() + " | Distance: " + distance + " km");
+            if (distance * 1000 <= PROXIMITY_RADIUS_METERS) { // Convert km to meters
+                nearbyPOIs.add(poi);
+                Log.d("PROXIMITY", "Triggering notification for: " + poi.getName());
+            }
+        }
+
+        if (!nearbyPOIs.isEmpty()) {
+            showProximityNotification(nearbyPOIs);
+        }
+    }
+
+    /**
+     *  Method to display alerts
+     */
+    private void showProximityNotification(List<POI> nearbyPOIs) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastNotificationTime < NOTIFICATION_COOLDOWN_MS) {
+            Log.d("NOTIFICATION", "Skipping notification - too soon since last one");
+            return;
+        }
+        lastNotificationTime = currentTime;
+
+        if (nearbyPOIs.isEmpty()) return;
+
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+        // Create a more informative notification
+        String contentTitle;
+        String contentText;
+
+        if (nearbyPOIs.size() == 1) {
+            POI poi = nearbyPOIs.get(0);
+            contentTitle = "Nearby: " + poi.getName();
+            contentText = poi.getDisplayInfo() + " is nearby";
+        } else {
+            contentTitle = nearbyPOIs.size() + " POIs nearby!";
+            StringBuilder sb = new StringBuilder();
+            for (POI poi : nearbyPOIs) {
+                sb.append("• ").append(poi.getName()).append("\n");
+            }
+            contentText = sb.toString().trim();
+        }
+
+        // Create a notification channel (already done in createNotificationChannel())
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "proximity_alerts")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(contentTitle)
+                .setContentText(contentText)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(contentText))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true);
+
+        try {
+            manager.notify(1, builder.build());
+            Log.d("NOTIFICATION", " + nearbyPOIs.size() + ");
+        } catch (Exception e) {
+            Log.e("NOTIFICATION", "Error: " + e.getMessage());
         }
     }
 
@@ -729,7 +911,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
-
     /**
      * Populates the Points of Interest (POI) map with predefined locations.
      *
@@ -923,7 +1104,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         return nearbyPOIs.size() > k ? nearbyPOIs.subList(0, k) : nearbyPOIs;
     }
-
 
     /**
      * Functional interface for calculating distances between geographical coordinates.
