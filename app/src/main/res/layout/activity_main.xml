@@ -91,6 +91,42 @@
             android:layout_marginBottom="8dp"
             android:padding="12dp" />
 
+        <Button
+            android:id="@+id/btn_create_list"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="200dp"
+            android:maxWidth="240dp"
+            android:layout_gravity="center_horizontal"
+            android:text="Create New List"
+            android:layout_marginBottom="8dp"
+            android:padding="12dp" />
+
+        <Button
+            android:id="@+id/add_to_list_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Add to List"
+            android:minWidth="200dp"
+            android:maxWidth="240dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@android:color/holo_blue_light"
+            android:layout_margin="8dp"
+            android:layout_marginBottom="8dp"
+            android:padding="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="My POI Lists"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+        <ListView
+            android:id="@+id/list_poi_lists"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"/>
+
         <ImageView
             android:layout_width="match_parent"
             android:layout_height="150dp"

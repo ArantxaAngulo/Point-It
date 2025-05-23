@@ -36,7 +36,9 @@ import com.google.android.libraries.places.api.Places;
 import com.google.android.libraries.places.api.model.CircularBounds;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.SparseBooleanArray;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.AutoCompleteTextView;
 import android.widget.ListView;
 import android.os.Handler;
@@ -54,6 +56,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -84,7 +87,7 @@ import java.util.Arrays;
  * - Explore different types of POIs (Restaurants, Historical Sites, Parks)
  *
  * @author [Arantxa]
- * @version v0.4.0
+ * @version v0.4.4
  * @since [11/29/2024]
  */
 
@@ -104,6 +107,12 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private boolean isDeleteMode = false; //flag
     private Button deletePOIButton;
+
+    private static List<POIList> poiLists = new ArrayList<>();
+    private ArrayAdapter<POIList> listsAdapter;
+
+    private boolean isAddToListMode = false;
+    private Button addToListButton;
 
     private GoogleMap mMap; // New Object GoogleMap
     private FusedLocationProviderClient fusedLocationClient; // Object FusedLocationProviderClient
@@ -193,6 +202,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             }
         });
 
+        //Initialize Add POI to list button
+        addToListButton = findViewById(R.id.add_to_list_button);
+        addToListButton.setOnClickListener(v -> toggleAddToListMode());
+
         // Initializing client location
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -240,6 +253,43 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
+        // Initalize Custom POI List Drawer
+        ListView listsView = findViewById(R.id.list_poi_lists);
+        Button createListButton = findViewById(R.id.btn_create_list);
+
+        listsAdapter = new ArrayAdapter<POIList>(this,
+                android.R.layout.simple_list_item_1, poiLists) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView textView = (TextView) view.findViewById(android.R.id.text1);
+                textView.setText(poiLists.get(position).getName());
+                return view;
+            }
+        };
+        listsView.setAdapter(listsAdapter);
+
+        // Initialize lists adapter
+        listsAdapter = new ArrayAdapter<POIList>(this,
+                android.R.layout.simple_list_item_1, poiLists) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView textView = (TextView) view.findViewById(android.R.id.text1);
+                textView.setText(poiLists.get(position).getName());
+                return view;
+            }
+        };
+        listsView.setAdapter(listsAdapter);
+
+        // Set up button and list view listeners
+        createListButton.setOnClickListener(v -> showCreateListDialog());
+        listsView.setOnItemClickListener((parent, view, position, id) -> {
+            POIList selectedList = poiLists.get(position);
+            showPOIListDetails(selectedList);
+        });
+
+        loadPOILists();
     }
 
     /**
@@ -319,8 +369,15 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                                     .show();
                             return true;
                         }
-                        // Default behavior - show info window
-                        return false;
+                        else if (isAddToListMode){
+                            // Show add to list dialog immediately
+                            showAddToListDialog(poi);
+                            return true;
+                        } else {
+                            // Default behavior - just show info window
+                            marker.showInfoWindow();
+                            return false;
+                        }
                     }
                 }
             }
@@ -343,6 +400,21 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 }
             }
         });
+    }
+
+    /**
+     * Toggles add POI to List on/off
+     */
+    private void toggleAddToListMode() {
+        isAddToListMode = !isAddToListMode;
+        if (isAddToListMode) {
+            addToListButton.setText("Cancel");
+            addToListButton.setBackgroundColor(getResources().getColor(android.R.color.holo_orange_dark));
+            Toast.makeText(this, "Tap a POI to add it to lists", Toast.LENGTH_SHORT).show();
+        } else {
+            addToListButton.setText("Add to List");
+            addToListButton.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_light));
+        }
     }
 
     /**
@@ -411,6 +483,130 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     protected void onPause() {
         super.onPause();
         stopLocationUpdates();
+    }
+
+    private void loadPOILists() {
+        poiLists.clear();
+        poiLists.addAll(localStorage.loadPOILists());
+        listsAdapter.notifyDataSetChanged();
+    }
+
+    private void showCreateListDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Create New POI List");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 50, 50, 50);
+
+        EditText nameInput = new EditText(this);
+        nameInput.setHint("List Name");
+        layout.addView(nameInput);
+
+        EditText descInput = new EditText(this);
+        descInput.setHint("Description (optional)");
+        layout.addView(descInput);
+
+        builder.setView(layout)
+                .setPositiveButton("Create", (dialog, which) -> {
+                    String name = nameInput.getText().toString().trim();
+                    if (!name.isEmpty()) {
+                        String desc = descInput.getText().toString().trim();
+                        POIList newList = new POIList(name, desc);
+                        localStorage.addPOIList(newList);
+                        loadPOILists();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /**
+     * Method that helps define thecustom POI list details
+     * @param list
+     */
+    private void showPOIListDetails(POIList list) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(list.getName());
+
+        // Get POIs in this list
+        List<POI> poisInList = new ArrayList<>();
+        for (String poiId : list.getPoiIds()) {
+            POI poi = findPOIById(poiId);
+            if (poi != null) {
+                poisInList.add(poi);
+            }
+        }
+
+        if (poisInList.isEmpty()) {
+            builder.setMessage("No POIs in this list yet");
+        } else {
+            String[] poiNames = new String[poisInList.size()];
+            for (int i = 0; i < poisInList.size(); i++) {
+                poiNames[i] = poisInList.get(i).getName();
+            }
+            builder.setItems(poiNames, null);
+        }
+
+        builder.setNeutralButton("Add POIs", (dialog, which) -> {
+                    showAddPOIsToListDialog(list);
+                })
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Delete List", (dialog, which) -> {
+                    localStorage.removePOIList(list.getId());
+                    loadPOILists();
+                })
+                .show();
+    }
+
+    /**
+     * Works with showpoilistdetails
+     * @param list
+     */
+    private void showAddPOIsToListDialog(POIList list) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Add POIs to " + list.getName());
+
+        // Get all available POIs
+        List<POI> allPOIs = localStorage.loadUserPOIs();
+
+        if (allPOIs.isEmpty()) {
+            builder.setMessage("No POIs available to add");
+            builder.setPositiveButton("OK", null);
+        } else {
+            String[] poiNames = new String[allPOIs.size()];
+            boolean[] checkedItems = new boolean[allPOIs.size()];
+
+            // Check which POIs are already in the list
+            for (int i = 0; i < allPOIs.size(); i++) {
+                poiNames[i] = allPOIs.get(i).getName();
+                checkedItems[i] = list.getPoiIds().contains(allPOIs.get(i).getId());
+            }
+
+            builder.setMultiChoiceItems(poiNames, checkedItems, (dialog, which, isChecked) -> {
+                // This just tracks selections, we'll handle changes in the button click
+            });
+
+            builder.setPositiveButton("Save", (dialog, which) -> {
+                // Get the multi-choice list view
+                ListView listView = ((AlertDialog) dialog).getListView();
+                SparseBooleanArray checked = listView.getCheckedItemPositions();
+
+                // Clear current POIs and add newly selected ones
+                list.getPoiIds().clear();
+                for (int i = 0; i < allPOIs.size(); i++) {
+                    if (checked.get(i)) {
+                        list.addPOI(allPOIs.get(i).getId());
+                    }
+                }
+                localStorage.updatePOIList(list);
+                Toast.makeText(this, "POIs added to list", Toast.LENGTH_SHORT).show();
+            });
+
+            builder.setNegativeButton("Cancel", null);
+        }
+
+        builder.show();
     }
 
     /**
@@ -511,6 +707,41 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         } catch (Exception e) {
             Log.e("NOTIFICATION", "Error: " + e.getMessage());
         }
+    }
+
+    /**
+     *  Shows Dialog for custom list POI
+     */
+    private void showAddToListDialog(POI poi) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Add " + poi.getName() + " to list");
+
+        if (poiLists.isEmpty()) {
+            builder.setMessage("No lists available. Create one first.");
+            builder.setPositiveButton("OK", null);
+        } else {
+            String[] listNames = new String[poiLists.size()];
+            boolean[] checkedItems = new boolean[poiLists.size()];
+
+            for (int i = 0; i < poiLists.size(); i++) {
+                listNames[i] = poiLists.get(i).getName();
+                checkedItems[i] = poiLists.get(i).getPoiIds().contains(poi.getId());
+            }
+
+            builder.setMultiChoiceItems(listNames, checkedItems, (dialog, which, isChecked) -> {
+                POIList list = poiLists.get(which);
+                if (isChecked) {
+                    list.addPOI(poi.getId());
+                } else {
+                    list.removePOI(poi.getId());
+                }
+                localStorage.updatePOIList(list);
+            });
+
+            builder.setPositiveButton("Done", null);
+        }
+
+        builder.show();
     }
 
     /**
@@ -1195,7 +1426,18 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             return "Simple POI";
         };
         public String getDisplayInfo() {
-            return name + " (" + getPOIType() + ")";
+            // Get lists this POI belongs to
+            List<String> listNames = new ArrayList<>();
+            for (POIList list : poiLists) {
+                if (list.getPoiIds().contains(id)) {
+                    listNames.add(list.getName());
+                }
+            }
+
+            String listInfo = listNames.isEmpty() ? "" :
+                    "\nIn lists: " + String.join(", ", listNames);
+
+            return name + " (" + getPOIType() + ")" + listInfo;
         }
 
 
@@ -1414,6 +1656,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     public class POILocalStorage {
         static final String PREF_NAME = "poi_storage";
         static final String KEY_USER_POIS = "user_pois";
+        static final String KEY_POI_LISTS = "poi_lists";
         SharedPreferences sharedPreferences;
         Context context;
 
@@ -1520,7 +1763,138 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         public void clearAllUserPOIs() {
             sharedPreferences.edit().remove(KEY_USER_POIS).apply();
         }
+
+        // Save POI Custom Lists
+        public void savePOILists(List<POIList> lists) {
+            JSONArray jsonArray = new JSONArray();
+            for (POIList list : lists) {
+                jsonArray.put(list.toJSON());
+            }
+            sharedPreferences.edit()
+                    .putString(KEY_POI_LISTS, jsonArray.toString())
+                    .apply();
+        }
+
+        // Load POI Custom Lists
+        public List<POIList> loadPOILists() {
+            List<POIList> lists = new ArrayList<>();
+            String jsonString = sharedPreferences.getString(KEY_POI_LISTS, "[]");
+
+            try {
+                JSONArray jsonArray = new JSONArray(jsonString);
+                for (int i = 0; i < jsonArray.length(); i++) {
+                    POIList list = POIList.fromJSON(jsonArray.getJSONObject(i));
+                    if (list != null) {
+                        lists.add(list);
+                    }
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            return lists;
+        }
+
+        // Add POI Custom Lists
+        public void addPOIList(POIList list) {
+            List<POIList> lists = loadPOILists();
+            lists.add(list);
+            savePOILists(lists);
+        }
+
+        // Delete POI Custom Lists
+        public void removePOIList(String listId) {
+            List<POIList> lists = loadPOILists();
+            lists.removeIf(list -> list.getId().equals(listId));
+            savePOILists(lists);
+        }
+
+        // Update POI Custom Lists
+        public void updatePOIList(POIList updatedList) {
+            List<POIList> lists = loadPOILists();
+            for (int i = 0; i < lists.size(); i++) {
+                if (lists.get(i).getId().equals(updatedList.getId())) {
+                    lists.set(i, updatedList);
+                    break;
+                }
+            }
+            savePOILists(lists);
+        }
     }
 
+    /**
+     *  POI Custom Lists 5/23/2025
+     */
+    public static class POIList {
+        private String id;
+        private String name;
+        private String description;
+        private List<String> poiIds; // Stores IDs of POIs in this list
+
+        public POIList(String name, String description) {
+            this.id = UUID.randomUUID().toString();
+            this.name = name;
+            this.description = description;
+            this.poiIds = new ArrayList<>();
+        }
+
+        // Getters and setters
+        public String getId() { return id; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        public List<String> getPoiIds() { return poiIds; }
+
+        // Add POI to list
+        public void addPOI(String poiId) {
+            if (!poiIds.contains(poiId)) {
+                poiIds.add(poiId);
+            }
+        }
+
+        // Remove POI from list
+        public void removePOI(String poiId) {
+            poiIds.remove(poiId);
+        }
+
+        // Convert to JSON
+        public JSONObject toJSON() {
+            JSONObject json = new JSONObject();
+            try {
+                json.put("id", id);
+                json.put("name", name);
+                json.put("description", description);
+
+                JSONArray poiArray = new JSONArray();
+                for (String poiId : poiIds) {
+                    poiArray.put(poiId);
+                }
+                json.put("poiIds", poiArray);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return json;
+        }
+
+        // Create from JSON
+        public static POIList fromJSON(JSONObject json) {
+            try {
+                String name = json.getString("name");
+                String description = json.getString("description");
+                POIList list = new POIList(name, description);
+                list.id = json.getString("id");
+
+                JSONArray poiArray = json.getJSONArray("poiIds");
+                for (int i = 0; i < poiArray.length(); i++) {
+                    list.poiIds.add(poiArray.getString(i));
+                }
+                return list;
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
+    }
 
 }
