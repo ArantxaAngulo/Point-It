@@ -88,7 +88,7 @@ import java.util.Arrays;
  * - Explore different types of POIs (Restaurants, Historical Sites, Parks)
  *
  * @author [Arantxa]
- * @version v0.5.3
+ * @version v0.5.4
  * @since [11/29/2024]
  */
 
@@ -220,6 +220,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 poiListSpinner.setVisibility(View.VISIBLE);
             }
         });
+
+        // Initialize delete poi list button
+        Button deleteListButton = findViewById(R.id.btn_delete_list);
+        deleteListButton.setOnClickListener(v -> showDeleteListDialog());
 
         // Initializing client location
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
@@ -571,10 +575,21 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             poiLists.add(0, new POIList("Show All POIs", "Shows all points of interest", true));
         }
 
-        // Update adapter
-        listSpinnerAdapter.clear();
-        listSpinnerAdapter.addAll(poiLists);
-        listSpinnerAdapter.notifyDataSetChanged();
+        // Create a new adapter to ensure complete refresh
+        listSpinnerAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, poiLists);
+        listSpinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        poiListSpinner.setAdapter(listSpinnerAdapter);
+
+        // Restore selection if possible
+        if (currentFilterList != null) {
+            for (int i = 0; i < poiLists.size(); i++) {
+                if (poiLists.get(i).getId().equals(currentFilterList.getId())) {
+                    poiListSpinner.setSelection(i);
+                    break;
+                }
+            }
+        }
 
     }
 
@@ -680,25 +695,42 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         builder.setPositiveButton("Close", null)
                 .setNeutralButton("Add POIs", (dialog, which) -> {
                     showAddPOIsToListDialog(list);
-                })
-                .setNegativeButton("DELETE LIST", (dialog, which) -> {
-                    // *** THIS IS THE DELETE OPTION ***
-                    showDeleteListConfirmation(list);
                 });
 
         AlertDialog dialog = builder.create();
         dialog.show();
-
-        // Make the delete button red for visibility
-        dialog.setOnShowListener(d -> {
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
-                    .setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark));
-        });
     }
 
     /**
      * Delete for poi lists
      */
+    private void showDeleteListDialog() {
+        List<POIList> deletableLists = new ArrayList<>();
+        for (POIList list : poiLists) {
+            if (!list.isShowAll()) { // Don't allow deleting the "Show All" list
+                deletableLists.add(list);
+            }
+        }
+
+        if (deletableLists.isEmpty()) {
+            Toast.makeText(this, "No lists available to delete", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] listNames = new String[deletableLists.size()];
+        for (int i = 0; i < deletableLists.size(); i++) {
+            listNames[i] = deletableLists.get(i).getName();
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Select List to Delete")
+                .setItems(listNames, (dialog, which) -> {
+                    POIList listToDelete = deletableLists.get(which);
+                    showDeleteListConfirmation(listToDelete);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
     private void showDeleteListConfirmation(POIList list) {
         new AlertDialog.Builder(this)
                 .setTitle("Delete List")
@@ -710,10 +742,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .setNegativeButton("Cancel", null)
                 .show();
     }
-
-    /**
-     * Handles actual list deletion
-     */
     private void deleteList(POIList list) {
         // Remove from storage
         localStorage.removePOIList(list.getId());

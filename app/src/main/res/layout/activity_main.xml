@@ -171,6 +171,19 @@
             android:divider="@android:color/darker_gray"
             android:dividerHeight="1dp"/>
 
+        <Button
+            android:id="@+id/btn_delete_list"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="200dp"
+            android:maxWidth="240dp"
+            android:layout_gravity="center_horizontal"
+            android:text="Delete List"
+            android:backgroundTint="@android:color/holo_red_dark"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="8dp"
+            android:padding="12dp" />
+
         <!-- Footer -->
         <ImageView
             android:layout_width="match_parent"
