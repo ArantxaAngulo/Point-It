@@ -40,6 +40,15 @@
         android:orientation="vertical"
         android:paddingTop="16dp">
 
+        <!-- POI Management Section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="POI Management"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp"/>
 
         <Button
             android:id="@+id/add_poi_button"
@@ -76,6 +85,7 @@
             android:layout_marginBottom="8dp"
             android:layout_gravity="center_horizontal"
             android:text="Find Nearest POIs"
+            android:backgroundTint="@android:color/holo_green_dark"
             android:textColor="@android:color/white"
             android:padding="12dp" />
 
@@ -87,9 +97,20 @@
             android:maxWidth="240dp"
             android:layout_gravity="center_horizontal"
             android:text="Delete POI"
-            android:backgroundTint="@android:color/holo_blue_dark"
-            android:layout_marginBottom="8dp"
+            android:backgroundTint="@android:color/holo_red_dark"
+            android:layout_marginBottom="16dp"
+            android:textColor="@android:color/white"
             android:padding="12dp" />
+
+        <!-- List Management Section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="List Management"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp"/>
 
         <Button
             android:id="@+id/btn_create_list"
@@ -99,6 +120,8 @@
             android:maxWidth="240dp"
             android:layout_gravity="center_horizontal"
             android:text="Create New List"
+            android:backgroundTint="@android:color/holo_orange_dark"
+            android:textColor="@android:color/white"
             android:layout_marginBottom="8dp"
             android:padding="12dp" />
 
@@ -110,37 +133,60 @@
             android:minWidth="200dp"
             android:maxWidth="240dp"
             android:layout_gravity="center_horizontal"
-            android:background="@android:color/holo_blue_light"
-            android:layout_margin="8dp"
+            android:backgroundTint="@android:color/holo_blue_light"
+            android:textColor="@android:color/white"
             android:layout_marginBottom="8dp"
             android:padding="12dp" />
 
-        <TextView
+        <Button
+            android:id="@+id/toggle_filter_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="My POI Lists"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+            android:text="Filter Lists"
+            android:minWidth="200dp"
+            android:maxWidth="240dp"
+            android:layout_gravity="center_horizontal"
+            android:backgroundTint="@android:color/holo_purple"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="8dp"
+            android:padding="12dp" />
+
+        <Spinner
+            android:id="@+id/poi_list_spinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="200dp"
+            android:maxWidth="240dp"
+            android:layout_gravity="center_horizontal"
+            android:visibility="gone"
+            android:prompt="@string/select_list_prompt"
+            android:layout_marginBottom="16dp"/>
+
         <ListView
             android:id="@+id/list_poi_lists"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"/>
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_margin="8dp"
+            android:divider="@android:color/darker_gray"
+            android:dividerHeight="1dp"/>
 
+        <!-- Footer -->
         <ImageView
             android:layout_width="match_parent"
             android:layout_height="150dp"
             android:src="@drawable/placeholder"
             android:scaleType="fitCenter"
-            android:contentDescription="Funny joke image"
+            android:contentDescription="App logo"
             android:padding="8dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Made with ❤️ (and coffee)"
-            android:textColor="@color/white"
+            android:textColor="@color/black"
             android:layout_gravity="center_horizontal"
-            android:textSize="12sp"/>
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp"/>
     </LinearLayout>
 </androidx.drawerlayout.widget.DrawerLayout>

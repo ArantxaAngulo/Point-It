@@ -39,6 +39,7 @@ import android.text.TextWatcher;
 import android.util.SparseBooleanArray;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.AutoCompleteTextView;
 import android.widget.ListView;
 import android.os.Handler;
@@ -87,7 +88,7 @@ import java.util.Arrays;
  * - Explore different types of POIs (Restaurants, Historical Sites, Parks)
  *
  * @author [Arantxa]
- * @version v0.4.4
+ * @version v0.5.3
  * @since [11/29/2024]
  */
 
@@ -113,6 +114,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private boolean isAddToListMode = false;
     private Button addToListButton;
+
+    private Spinner poiListSpinner;
+    private ArrayAdapter<POIList> listSpinnerAdapter;
+    private POIList currentFilterList = null;
 
     private GoogleMap mMap; // New Object GoogleMap
     private FusedLocationProviderClient fusedLocationClient; // Object FusedLocationProviderClient
@@ -206,6 +211,16 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         addToListButton = findViewById(R.id.add_to_list_button);
         addToListButton.setOnClickListener(v -> toggleAddToListMode());
 
+        Button toggleFilterButton = findViewById(R.id.toggle_filter_button);
+        toggleFilterButton.setOnClickListener(v -> {
+            if (poiListSpinner.getVisibility() == View.VISIBLE) {
+                poiListSpinner.setVisibility(View.GONE);
+                showAllPOIs();
+            } else {
+                poiListSpinner.setVisibility(View.VISIBLE);
+            }
+        });
+
         // Initializing client location
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -269,27 +284,56 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         };
         listsView.setAdapter(listsAdapter);
 
-        // Initialize lists adapter
-        listsAdapter = new ArrayAdapter<POIList>(this,
-                android.R.layout.simple_list_item_1, poiLists) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                View view = super.getView(position, convertView, parent);
-                TextView textView = (TextView) view.findViewById(android.R.id.text1);
-                textView.setText(poiLists.get(position).getName());
-                return view;
-            }
-        };
-        listsView.setAdapter(listsAdapter);
-
         // Set up button and list view listeners
         createListButton.setOnClickListener(v -> showCreateListDialog());
         listsView.setOnItemClickListener((parent, view, position, id) -> {
+            Log.d("DEBUG", "List item clicked at position: " + position);
             POIList selectedList = poiLists.get(position);
-            showPOIListDetails(selectedList);
+            Log.d("DEBUG", "Selected list: " + (selectedList != null ? selectedList.getName() : "null"));
+            if (selectedList.isShowAll()) {
+                Log.e("DEBUG", "Selected list is null!");
+                showAllPOIs();
+            } else {
+                Log.d("DEBUG", "Showing details for: " + selectedList.getName());
+                showPOIListDetails(selectedList); // This shows the dialog with delete option
+            }
+
+            // Show a toast to confirm the click was registered
+            Toast.makeText(this, "Clicked: " + (selectedList != null ? selectedList.getName() : "null"), Toast.LENGTH_SHORT).show();
         });
 
+        // Initialize UI components FIRST
+        poiListSpinner = findViewById(R.id.poi_list_spinner);
+
+        // Initialize spinner adapter
+        listSpinnerAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new ArrayList<>());
+        listSpinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        poiListSpinner.setAdapter(listSpinnerAdapter);
+
         loadPOILists();
+        Log.d("DEBUG", "Loaded lists: " + poiLists.size());
+        for (POIList list : poiLists) {
+            Log.d("DEBUG", "List: " + list.getName() + " isShowAll: " + list.isShowAll());
+        }
+
+        poiListSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                POIList selectedList = (POIList) parent.getItemAtPosition(position);
+                currentFilterList = selectedList;
+                if (selectedList.isShowAll()) {
+                    showAllPOIs();
+                } else {
+                    filterPOIsByList(selectedList);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                showAllPOIs();
+            }
+        });
     }
 
     /**
@@ -394,12 +438,13 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     userLocation = new LatLng(location.getLatitude(), location.getLongitude()); // Convert location to LatLng Object and save it to userLocation
                     mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15)); // Move the camera to userLocation
 
-                    // DATA
-                    initializePOIMap();
-
                 }
             }
         });
+
+        // Load and display all POIs when map is ready
+        initializePOIMap();
+        showAllPOIs();  // Ensure POIs are visible at startup
     }
 
     /**
@@ -485,10 +530,52 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         stopLocationUpdates();
     }
 
+    private void onListUpdated() {
+        loadPOILists();
+        if (currentFilterList != null) {
+            // Refresh filter if one was active
+            currentFilterList = poiLists.stream()
+                    .filter(list -> list != null && list.getId().equals(currentFilterList.getId()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (currentFilterList != null) {
+                filterPOIsByList(currentFilterList);
+            } else {
+                showAllPOIs();
+            }
+        }
+    }
+
     private void loadPOILists() {
+        if (poiListSpinner == null || listSpinnerAdapter == null) {
+            Log.e("MainActivity", "Spinner or adapter not initialized!");
+            return;
+        }
+        // Clear existing lists
         poiLists.clear();
-        poiLists.addAll(localStorage.loadPOILists());
-        listsAdapter.notifyDataSetChanged();
+
+        // Load saved lists first
+        List<POIList> savedLists = localStorage.loadPOILists();
+        poiLists.addAll(savedLists);
+
+        // Add "Show All" option at beginning if it doesn't exist
+        boolean hasShowAll = false;
+        for (POIList list : poiLists) {
+            if (list.isShowAll()) {
+                hasShowAll = true;
+                break;
+            }
+        }
+        if (!hasShowAll) {
+            poiLists.add(0, new POIList("Show All POIs", "Shows all points of interest", true));
+        }
+
+        // Update adapter
+        listSpinnerAdapter.clear();
+        listSpinnerAdapter.addAll(poiLists);
+        listSpinnerAdapter.notifyDataSetChanged();
+
     }
 
     private void showCreateListDialog() {
@@ -521,13 +608,54 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .show();
     }
 
+    private void filterPOIsByList(POIList list) {
+        // Clear all markers first
+        clearAllMarkers();
+
+        // Add only POIs from the selected list
+        for (String poiId : list.getPoiIds()) {
+            POI poi = findPOIById(poiId);
+            if (poi != null) {
+                addPOIToMap(poi);
+            }
+        }
+
+        Toast.makeText(this, "Showing POIs from: " + list.getName(), Toast.LENGTH_SHORT).show();
+    }
+
+    private void showAllPOIs() {
+        clearAllMarkers();
+        for (POI poi : allPOIs) {
+            addPOIToMap(poi);
+        }
+        if (mMap != null) {
+            if (userLocation != null) {
+                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15));
+            }
+        }
+        Toast.makeText(this, "Showing all POIs", Toast.LENGTH_SHORT).show();
+    }
+
+    private void clearAllMarkers() {
+        for (Marker marker : poiMarkers.values()) {
+            marker.remove();
+        }
+        poiMarkers.clear();
+    }
+
     /**
      * Method that helps define thecustom POI list details
      * @param list
      */
     private void showPOIListDetails(POIList list) {
+        if (list == null || list.isShowAll()) {
+            showAllPOIs();
+            return;
+        }
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(list.getName());
+        builder.setMessage(list.getDescription());
 
         // Get POIs in this list
         List<POI> poisInList = new ArrayList<>();
@@ -548,15 +676,61 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             builder.setItems(poiNames, null);
         }
 
-        builder.setNeutralButton("Add POIs", (dialog, which) -> {
+        // THREE BUTTONS: Close, Add POIs, and DELETE LIST
+        builder.setPositiveButton("Close", null)
+                .setNeutralButton("Add POIs", (dialog, which) -> {
                     showAddPOIsToListDialog(list);
                 })
-                .setPositiveButton("Close", null)
-                .setNegativeButton("Delete List", (dialog, which) -> {
-                    localStorage.removePOIList(list.getId());
-                    loadPOILists();
+                .setNegativeButton("DELETE LIST", (dialog, which) -> {
+                    // *** THIS IS THE DELETE OPTION ***
+                    showDeleteListConfirmation(list);
+                });
+
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Make the delete button red for visibility
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                    .setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark));
+        });
+    }
+
+    /**
+     * Delete for poi lists
+     */
+    private void showDeleteListConfirmation(POIList list) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete List")
+                .setMessage("Are you sure you want to delete the list '" + list.getName() + "'?\n\n" +
+                        "Note: The POIs themselves will not be deleted.")
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    deleteList(list);
                 })
+                .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /**
+     * Handles actual list deletion
+     */
+    private void deleteList(POIList list) {
+        // Remove from storage
+        localStorage.removePOIList(list.getId());
+
+        // Remove from our in-memory list
+        poiLists.remove(list);
+
+        // Update the spinner adapter
+        listSpinnerAdapter.notifyDataSetChanged();
+
+        // If we were viewing this list, show all POIs
+        if (currentFilterList != null && currentFilterList.getId().equals(list.getId())) {
+            currentFilterList = null;
+            showAllPOIs();
+        }
+
+        Toast.makeText(this, "List deleted", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -716,20 +890,28 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Add " + poi.getName() + " to list");
 
-        if (poiLists.isEmpty()) {
+        // Filter out null items (the "Show All" option)
+        List<POIList> filterableLists  = new ArrayList<>();
+        for (POIList list : poiLists) {
+            if (!list.isShowAll()) {
+                filterableLists.add(list);
+            }
+        }
+
+        if (filterableLists .isEmpty()) {
             builder.setMessage("No lists available. Create one first.");
             builder.setPositiveButton("OK", null);
         } else {
-            String[] listNames = new String[poiLists.size()];
-            boolean[] checkedItems = new boolean[poiLists.size()];
+            String[] listNames = new String[filterableLists .size()];
+            boolean[] checkedItems = new boolean[filterableLists .size()];
 
-            for (int i = 0; i < poiLists.size(); i++) {
-                listNames[i] = poiLists.get(i).getName();
-                checkedItems[i] = poiLists.get(i).getPoiIds().contains(poi.getId());
+            for (int i = 0; i < filterableLists .size(); i++) {
+                listNames[i] = filterableLists .get(i).getName();
+                checkedItems[i] = filterableLists .get(i).getPoiIds().contains(poi.getId());
             }
 
             builder.setMultiChoiceItems(listNames, checkedItems, (dialog, which, isChecked) -> {
-                POIList list = poiLists.get(which);
+                POIList list = filterableLists .get(which);
                 if (isChecked) {
                     list.addPOI(poi.getId());
                 } else {
@@ -1830,21 +2012,33 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         private String name;
         private String description;
         private List<String> poiIds; // Stores IDs of POIs in this list
+        private boolean isShowAll;
 
         public POIList(String name, String description) {
+            this(name, description, false);
+        }
+
+        // New constructor for special lists
+        public POIList(String name, String description, boolean isShowAll) {
             this.id = UUID.randomUUID().toString();
             this.name = name;
             this.description = description;
             this.poiIds = new ArrayList<>();
+            this.isShowAll = isShowAll;
         }
 
         // Getters and setters
         public String getId() { return id; }
-        public String getName() { return name; }
+        public String getName() { return this.name; }
         public void setName(String name) { this.name = name; }
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
         public List<String> getPoiIds() { return poiIds; }
+        public boolean isShowAll() { return isShowAll; }
+        @Override
+        public String toString() {
+            return name; // This ensures default adapter behavior uses getName()
+        }
 
         // Add POI to list
         public void addPOI(String poiId) {
@@ -1894,6 +2088,27 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 e.printStackTrace();
                 return null;
             }
+        }
+    }
+
+    class POIListSpinnerAdapter extends ArrayAdapter<POIList> {
+        public POIListSpinnerAdapter(Context context, List<POIList> lists) {
+            super(context, android.R.layout.simple_spinner_item, lists);
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            TextView view = (TextView) super.getView(position, convertView, parent);
+            view.setText(getItem(position).getName());
+            return view;
+        }
+
+        @Override
+        public View getDropDownView(int position, View convertView, ViewGroup parent) {
+            TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+            view.setText(getItem(position).getName());
+            return view;
         }
     }
 
