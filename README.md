@@ -4,6 +4,7 @@
   <br>
 </h1>
 <h4 align="center">A mobile application that helps users easily save,locate and share custom points of interest (POIs)<br>
+</h4>
 <br>
 <p align="center">
     <a href="https://img.shields.io/badge/Platform-Android-brightgreen">
@@ -16,14 +17,14 @@
     <img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha Status">
   </a>
 <br>
+<br>
 	⋆.˚⭒⋆ ⭐ Star this project on GitHub — it means a lot! ⭐ ⋆⭒˚.⋆
 </p>
 
 <p align="center">
-<a href="#why?">Why?</a> •
+  <a href="#why?">Why?</a> •
   <a href="#key-features">Key Features</a> •
   <a href="#how-to-use">How To Use</a> •
-  <a href="#related">Related</a> •
 </p>
 
 ![gif](assets/gif1.gif)
@@ -32,17 +33,17 @@
 Ever save countless place recommendations from social media? I know I do, and when its time to actually visit them I have to dig through my phone in order to find them (or give up midway through). What if there was an easier way to save them? and not only that, save by category, filter and even share with my friends? Point It was made.
 
 ## Key Features
-* Dynamic & Dynamic POIs
+* <b>Dynamic & Dynamic POIs</b>
    - Allows users to save POIs with custom name, location, category and description!
-* Custom POI Lists
+* <b>Custom POI Lists</b>
   - Arrange and filter POIs by YOUR custom lists!
-* Share with Friends!
+* <b>Share with Friends!</b>
   - upcoming ;)
-* Integration with the Google Maps API
+* <b>Integration with the Google Maps API</b>
    - Tracks real time location and place suggestions!
-* Be notified when a POI is nearby
+* <b>Be notified when a POI is nearby</b>
    - Notifies which POIs are 5 minutes away in a 800m circle!
-* Works offline
+* <b>Works offline</b>
 
 ## How To Use - ALPHA TESTERS 
 
@@ -67,11 +68,6 @@ Alternatively, you can simply download the APK from this [link]() in your androi
 
 ## ⚠️ Disclaimer
 This is an <b>alpha</b> version — please report bugs or crashes send me an email at <akrankaa10@gmail.com> about anything you'd want to say about this software or message me directly. 
-
-## Related
-
-[Mineflayer Link](https://github.com/PrismarineJS/mineflayer/tree/master) - Mineflayer official documentation/repo
-
 
 ## License
 
