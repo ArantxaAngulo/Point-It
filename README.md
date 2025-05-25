@@ -64,7 +64,7 @@ Then:
 > **Note**
 > If it's your first time building an Android app, make sure: You accept all SDK licenses when prompted. Run at your own risk.
 
-Alternatively, you can simply download the APK from this [link]() in your android device. Be sure to enable temporarily "Install from unknown sources"
+Alternatively, you can simply download the APK from this [link](https://drive.google.com/file/d/1ZgYU8AuwA2JCVaslbYxZFis32NIRwfvD/view?usp=sharing) in your android device. Be sure to enable temporarily "Install from unknown sources"
 
 ## ⚠️ Disclaimer
 This is an <b>alpha</b> version — please report bugs or crashes send me an email at <akrankaa10@gmail.com> about anything you'd want to say about this software or message me directly. 
